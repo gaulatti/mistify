@@ -1,57 +1,31 @@
-# Unified Text Analysis API
 
-A comprehensive FastAPI service that provides language detection, content classification, translation, and text clustering capabilities in a single, unified endpoint.
+# Mistify: Unified AI Helpers
+
+Mistify is a set of modular AI helpers for text analysis, clustering, classification, translation, and more. It provides a unified FastAPI service and reusable components for building advanced language and content workflows.
+
 
 ## Features
 
-### Language Detection
-- Uses Facebook's FastText model for fast and accurate language identification
-- Supports detection of 176 languages
-- Returns multiple language predictions with confidence scores
+- **Language Detection**: FastText-based, supports 176 languages, confidence scores
+- **Content Classification**: Zero-shot (DistilBART), custom labels, GPU-accelerated
+- **Translation**: Seamless M4T v2, Helsinki-NLP fallback, 100+ language pairs
+- **Text Clustering**: Entity-aware, topic-gated, alias discovery, graph-based
+- **Unified Analysis**: Combine detection, translation, and classification in one call
+- **Modular API**: Use endpoints independently or compose for advanced workflows
 
-### Content Classification  
-- Uses DistilBART for zero-shot text classification
-- Classifies content into categories like "breaking news", "humor/satire", etc.
-- Supports custom classification labels
-- GPU-accelerated when available
-
-### Translation
-- Uses Facebook's Seamless M4T v2 Large model for high-quality translation
-- Fallback to Helsinki-NLP models for broader compatibility
-- Supports translation from multiple languages to English
-- Auto-detects source language when not specified
-- Handles 100+ language pairs with robust error handling
-
-### Text Clustering 🆕
-- Entity-aware, topic-gated community detection for grouping similar texts
-- Automatic alias discovery for entity normalization
-- Uses Sentence Transformers for semantic embeddings
-- SpaCy for named entity recognition
-- Graph-based clustering with Louvain community detection
-- Configurable similarity thresholds and community splitting
-
-### Unified Analysis
-- Single endpoint that performs language detection, content classification, and translation
-- Configurable to run any combination of analyses
-- Optimized for performance with async processing
-- Intelligent workflow: detects language → translates if needed → classifies content
+Mistify is designed for extensibility—add your own AI helpers or swap models as needed.
 
 ## API Endpoints
 
-### `/detect`
-Detect the language(s) of input text.
+Mistify exposes a unified FastAPI service with endpoints for each helper:
 
-**Request:**
-```json
-{
-  "text": "Hello, how are you today?",
-  "k": 2
-}
-```
+- `/detect` — Language detection
+- `/classify` — Content classification
+- `/translate` — Translation
+- `/cluster` — Text clustering
+- `/analyze` — Unified multi-step analysis
 
-**Response:**
-```json
-{
+See endpoint documentation and examples below for usage details.
   "languages": ["en", "es"],
   "probabilities": [0.9923, 0.0045]
 }
