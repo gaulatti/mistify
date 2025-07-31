@@ -32,3 +32,6 @@ lid.176.bin
 
 # Dependencies
 node_modules/
+
+# Test files (temporary)
+test_docker_refactoring.py

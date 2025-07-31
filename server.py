@@ -86,8 +86,8 @@ CLUSTERING_ALIAS_THR = 0.20   # Alias discovery threshold (cosine distance)
 CLUSTERING_TOK_REMOVE = {"the", "a", "an", "of"}
 CLUSTERING_PUN_RE = re.compile(r"[^\w\s]")
 
-# Persistent cache for HuggingFace models
-HF_CACHE = pathlib.Path.home() / ".hf_models"
+# Persistent cache for HuggingFace models - use HF_HOME environment variable if set
+HF_CACHE = pathlib.Path(os.environ.get("HF_HOME", pathlib.Path.home() / ".hf_models"))
 HF_CACHE.mkdir(parents=True, exist_ok=True)
 
 # ---- Global Variables ----------------------------------------------------------
