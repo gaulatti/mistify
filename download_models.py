@@ -30,7 +30,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("model-downloader")
 
 # HuggingFace cache configuration
-HF_CACHE = pathlib.Path.home() / ".hf_models"
+# Use HF_HOME environment variable if set, otherwise default to ~/.hf_models
+HF_CACHE = pathlib.Path(os.environ.get("HF_HOME", pathlib.Path.home() / ".hf_models"))
 HF_CACHE.mkdir(parents=True, exist_ok=True)
 os.environ["HF_HOME"] = str(HF_CACHE)
 

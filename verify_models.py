@@ -13,8 +13,8 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("model-verifier")
 
-# HuggingFace cache location - use same location as download_models.py
-HF_CACHE = pathlib.Path.home() / ".hf_models"
+# HuggingFace cache location - use HF_HOME environment variable if set
+HF_CACHE = pathlib.Path(os.environ.get("HF_HOME", pathlib.Path.home() / ".hf_models"))
 os.environ["TRANSFORMERS_CACHE"] = str(HF_CACHE)
 os.environ["HF_HOME"] = str(HF_CACHE)
 os.environ["HF_HUB_OFFLINE"] = "1"  # Force offline mode

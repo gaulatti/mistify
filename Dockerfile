@@ -1,6 +1,17 @@
-# Unified Text Analysis API - Dockerfile
-# =======================================
-# Combines FastText language detection, BART content classification, Seamless M4T translation, and text clustering
+# Unified Text Analysis API - Application Dockerfile
+# ==================================================
+# This Dockerfile builds the application image that uses pre-downloaded models.
+# 
+# BUILD PROCESS:
+# 1. First build the models image: docker build -f Dockerfile.models -t myproject-models:latest .
+# 2. Then build this app image: docker build -t myproject-app:latest .
+#
+# The models are copied from the pre-built models image using Docker's
+# multi-stage COPY --from syntax, avoiding the need to re-download models each time.
+
+# Build argument to specify the models image (defaults to myproject-models:latest)
+ARG MODELS_IMAGE=myproject-models:latest
+
 FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
 
 # Hard-cap thread pools for stability
@@ -12,7 +23,7 @@ ENV OMP_NUM_THREADS=1 \
     TOKENIZERS_PARALLELISM=false \
     RAYON_NUM_THREADS=1
 
-# Install system dependencies (removed git and build-essential since we're using fasttext-wheel)
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     libsndfile1-dev \
@@ -20,38 +31,25 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy requirements and install dependencies first (better caching)
-# FastText is now installed via fasttext-wheel from requirements.txt - no compilation needed!
+# Copy requirements and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Download SpaCy English model for clustering (must be done after pip install)
+# Download SpaCy English model (required in both images as it's a Python package)
 RUN python -m spacy download en_core_web_sm
 
-# Download the language identification model (cached layer)
-RUN curl -LO https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
+# Copy all pre-downloaded models from the models image
+# This includes FastText model and all HuggingFace models
+COPY --from=$MODELS_IMAGE /models /models
 
-# Copy download script and pre-download AI models (cached unless download_models.py changes)
-# This downloads: Translation models, Classification models, and Clustering models
-COPY download_models.py .
-
-# Clean up unused files and cache before downloading models to free disk space
-RUN rm -rf ~/.cache/huggingface/hub /root/.cache/huggingface/hub /root/.hf_models /tmp/* /var/tmp/* && \
-    df -h
-
-RUN python download_models.py && rm download_models.py
-
-# Copy verification script and verify all models are cached
-COPY verify_models.py .
-RUN python verify_models.py && rm verify_models.py
-
-# Set environment variables
-ENV FASTTEXT_MODEL_PATH=lid.176.bin
+# Set environment variables to use the copied models
+ENV FASTTEXT_MODEL_PATH=/models/lid.176.bin
 ENV MIN_SCORE=0.30
 ENV MIN_MARGIN=0.10
-# Configure HuggingFace cache and ensure models use local cache (offline mode)
-ENV TRANSFORMERS_CACHE=/root/.hf_models
-ENV HF_HOME=/root/.hf_models
+# Configure HuggingFace cache to use copied models (offline mode)
+ENV TRANSFORMERS_CACHE=/models/.hf_models
+ENV HF_HOME=/models/.hf_models
+ENV HF_HUB_CACHE=/models/.hf_models
 ENV HF_HUB_OFFLINE=1
 ENV HF_DATASETS_OFFLINE=1
 ENV TRANSFORMERS_OFFLINE=1
