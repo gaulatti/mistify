@@ -35,46 +35,55 @@ HF_CACHE.mkdir(parents=True, exist_ok=True)
 os.environ["HF_HOME"] = str(HF_CACHE)
 
 def download_translation_models():
-    """Download translation models"""
-    logger.info("📥 Pre-downloading Seamless M4T v2 model...")
+    """Download translation models - ensuring Helsinki-NLP/opus-mt-mul-en is available"""
+    logger.info("📥 Pre-downloading required translation model...")
+    
+    # Download the required Helsinki-NLP model first
     try:
-        translator = pipeline(
+        helsinki_translator = pipeline(
+            "translation",
+            model="Helsinki-NLP/opus-mt-mul-en",
+            device=-1,
+            cache_dir=str(HF_CACHE)
+        )
+        logger.info("✅ Helsinki-NLP/opus-mt-mul-en model downloaded successfully")
+        translation_success = True
+    except Exception as e:
+        logger.error(f"❌ Required Helsinki-NLP model download failed: {e}")
+        translation_success = False
+    
+    # Try to also download Seamless M4T v2 as backup (optional)
+    try:
+        logger.info("📥 Pre-downloading additional Seamless M4T v2 model...")
+        seamless_translator = pipeline(
             "translation",
             model="facebook/seamless-m4t-v2-large",
             device=-1,  # Use CPU for download
             torch_dtype=torch.float32,
-            trust_remote_code=True
+            trust_remote_code=True,
+            cache_dir=str(HF_CACHE)
         )
         logger.info("✅ Seamless M4T v2 model downloaded successfully")
-        return True
     except Exception as e:
-        logger.warning(f"⚠️ Primary model failed, downloading fallback: {e}")
-        try:
-            fallback = pipeline(
-                "translation",
-                model="Helsinki-NLP/opus-mt-mul-en",
-                device=-1
-            )
-            logger.info("✅ Fallback translation model downloaded")
-            return True
-        except Exception as fe:
-            logger.error(f"❌ Fallback model also failed: {fe}")
-            return False
+        logger.warning(f"⚠️ Optional Seamless M4T v2 model failed (not critical): {e}")
+    
+    return translation_success
 
 def download_classification_model():
-    """Download classification model"""
-    logger.info("📥 Pre-downloading classification model...")
+    """Download classification model - ensuring valhalla/distilbart-mnli-12-3 is available"""
+    logger.info("📥 Pre-downloading required classification model...")
     try:
         classifier = pipeline(
             "zero-shot-classification",
             model="valhalla/distilbart-mnli-12-3",
             device=-1,
-            hypothesis_template="This post is {}."
+            hypothesis_template="This post is {}.",
+            cache_dir=str(HF_CACHE)
         )
-        logger.info("✅ Classification model downloaded successfully")
+        logger.info("✅ valhalla/distilbart-mnli-12-3 classification model downloaded successfully")
         return True
     except Exception as e:
-        logger.error(f"❌ Classification model download failed: {e}")
+        logger.error(f"❌ Required classification model download failed: {e}")
         return False
 
 def download_clustering_models():
