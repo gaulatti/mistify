@@ -34,6 +34,11 @@ RUN curl -LO https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.b
 # Copy download script and pre-download AI models (cached unless download_models.py changes)
 # This downloads: Translation models, Classification models, and Clustering models
 COPY download_models.py .
+
+# Clean up unused files and cache before downloading models to free disk space
+RUN rm -rf ~/.cache/huggingface/hub /root/.cache/huggingface/hub /root/.hf_models /tmp/* /var/tmp/* && \
+    df -h
+
 RUN python download_models.py && rm download_models.py
 
 # Copy verification script and verify all models are cached
