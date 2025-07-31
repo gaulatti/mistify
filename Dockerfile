@@ -44,7 +44,9 @@ RUN python verify_models.py && rm verify_models.py
 ENV FASTTEXT_MODEL_PATH=lid.176.bin
 ENV MIN_SCORE=0.30
 ENV MIN_MARGIN=0.10
-# Ensure models use local cache (offline mode)
+# Configure HuggingFace cache and ensure models use local cache (offline mode)
+ENV TRANSFORMERS_CACHE=/root/.hf_models
+ENV HF_HOME=/root/.hf_models
 ENV HF_HUB_OFFLINE=1
 ENV HF_DATASETS_OFFLINE=1
 ENV TRANSFORMERS_OFFLINE=1

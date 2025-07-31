@@ -254,6 +254,18 @@ docker run --memory=12g -p 8000:8000 unified-text-analysis
 
 **Note:** The Docker build process pre-downloads and verifies all models (~9GB total) during the build phase, ensuring 100% offline operation. The container starts immediately without any network requests. The build process may take 15-20 minutes depending on your internet connection, but subsequent runs are instant.
 
+### Required Models
+
+The Docker build automatically downloads and caches these essential models:
+
+- **Classification**: `valhalla/distilbart-mnli-12-3` - Zero-shot classification model
+- **Translation**: `Helsinki-NLP/opus-mt-mul-en` - Multi-language to English translation
+- **Clustering**: `all-MiniLM-L6-v2` - Sentence embeddings for clustering
+- **Language Detection**: FastText `lid.176.bin` - 176-language detection model
+- **NLP Processing**: SpaCy `en_core_web_sm` - English language model
+
+All models are cached in `/root/.hf_models` with offline mode enforced via `TRANSFORMERS_OFFLINE=1` environment variable.
+
 ## Running Locally
 
 ```bash

@@ -13,8 +13,9 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("model-verifier")
 
-# HuggingFace cache location
+# HuggingFace cache location - use same location as download_models.py
 HF_CACHE = pathlib.Path.home() / ".hf_models"
+os.environ["TRANSFORMERS_CACHE"] = str(HF_CACHE)
 os.environ["HF_HOME"] = str(HF_CACHE)
 os.environ["HF_HUB_OFFLINE"] = "1"  # Force offline mode
 os.environ["HF_DATASETS_OFFLINE"] = "1"
@@ -68,7 +69,8 @@ def verify_classification_model():
             "zero-shot-classification",
             model="valhalla/distilbart-mnli-12-3",
             device=-1,  # CPU only for verification
-            local_files_only=True  # Force offline mode
+            local_files_only=True,  # Force offline mode
+            model_kwargs={'cache_dir': str(HF_CACHE)}
         )
         test_result = classifier("This is a test sentence", ["test", "example"])
         logger.info(f"✓ Classification model loaded from cache. Test result: {test_result['labels'][0]}")
@@ -81,25 +83,27 @@ def verify_translation_model():
     """Verify translation model is cached"""
     try:
         from transformers import pipeline
-        # Try primary model first
+        # Try primary required model first: Helsinki-NLP/opus-mt-mul-en
         try:
             translator = pipeline(
                 "translation",
-                model="facebook/seamless-m4t-v2-large",
+                model="Helsinki-NLP/opus-mt-mul-en",
                 device=-1,  # CPU only for verification
-                local_files_only=True  # Force offline mode
+                local_files_only=True,  # Force offline mode
+                model_kwargs={'cache_dir': str(HF_CACHE)}
             )
-            logger.info("✓ Seamless M4T v2 translation model loaded from cache")
+            logger.info("✓ Helsinki-NLP/opus-mt-mul-en translation model loaded from cache")
             return True
         except Exception:
-            # Try fallback model
+            # Try Seamless M4T v2 as fallback
             translator = pipeline(
                 "translation",
-                model="Helsinki-NLP/opus-mt-mul-en",
+                model="facebook/seamless-m4t-v2-large",
                 device=-1,
-                local_files_only=True
+                local_files_only=True,
+                model_kwargs={'cache_dir': str(HF_CACHE)}
             )
-            logger.info("✓ Helsinki-NLP translation model loaded from cache")
+            logger.info("✓ Seamless M4T v2 translation model loaded from cache")
             return True
     except Exception as e:
         logger.error(f"❌ Translation model verification failed: {e}")
