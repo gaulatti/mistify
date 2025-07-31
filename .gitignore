@@ -1,0 +1,34 @@
+# Python virtual environments
+venv/
+env/
+.env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model cache directories (for local development)
+.hf_models/
+.cache/
+
+# FastText model
+lid.176.bin
+
+# Logs
+*.log
+
+# Dependencies
+node_modules/
