@@ -3,14 +3,14 @@
 # This Dockerfile builds the application image that uses pre-downloaded models.
 # 
 # BUILD PROCESS:
-# 1. First build the models image: docker build -f Dockerfile.models -t myproject-models:latest .
-# 2. Then build this app image: docker build -t myproject-app:latest .
+# 1. First build the models image: docker build -f Dockerfile.models -t mistify-models:latest .
+# 2. Then build this app image: docker build -t mistify-app:latest .
 #
 # The models are copied from the pre-built models image using Docker's
 # multi-stage COPY --from syntax, avoiding the need to re-download models each time.
 
-# Build argument to specify the models image (defaults to myproject-models:latest)
-ARG MODELS_IMAGE=myproject-models:latest
+# Build argument to specify the models image (defaults to mistify-models:latest)
+ARG MODELS_IMAGE=mistify-models:latest
 
 FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
 
