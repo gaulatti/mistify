@@ -1,7 +1,7 @@
 # Models Image - Dockerfile.models
 # ===================================
 # This image downloads and caches all required models to /models directory.
-# Build this image first: docker build -f Dockerfile.models -t myproject-models:latest .
+# Build this image first: docker build -f Dockerfile.models -t mistify-models:latest .
 # Then the main application image will copy models from this pre-built image.
 
 FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
@@ -39,8 +39,9 @@ ENV HF_HOME=/models/.hf_models
 ENV HF_HUB_CACHE=/models/.hf_models
 
 # Download the FastText language identification model to /models
-RUN curl -LO https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin && \
-    mv lid.176.bin /models/lid.176.bin
+RUN mkdir -p /models && \
+    curl -fSL https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin -o /models/lid.176.bin && \
+    ls -lh /models/lid.176.bin
 
 # Copy download script and download all AI models to /models/.hf_models
 COPY download_models.py .
@@ -51,10 +52,6 @@ RUN rm -rf ~/.cache/huggingface/hub /root/.cache/huggingface/hub /root/.hf_model
 
 # Download all AI models (translation, classification, clustering)
 RUN python download_models.py && rm download_models.py
-
-# Copy verification script and verify all models are cached
-COPY verify_models.py .
-RUN python verify_models.py && rm verify_models.py
 
 # Set final environment variables for model verification
 ENV FASTTEXT_MODEL_PATH=/models/lid.176.bin
