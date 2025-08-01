@@ -1,12 +1,11 @@
-# Models Image - Dockerfile.models
-# ===================================
-# This image downloads and caches all required models to /models directory.
-# Build this image first: docker build -f Dockerfile.models -t mistify-models:latest .
-# Then the main application image will copy models from this pre-built image.
+# Base Runtime Image - Dockerfile.models
+# ======================================
+# This image provides the base runtime environment without pre-downloaded models.
+# Models will be downloaded at runtime when the application starts.
 
 FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
 
-# Hard-cap thread pools for stability during model downloads
+# Configure thread pools for stability
 ENV OMP_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
@@ -15,50 +14,19 @@ ENV OMP_NUM_THREADS=1 \
     TOKENIZERS_PARALLELISM=false \
     RAYON_NUM_THREADS=1
 
-# Install system dependencies required for model downloading
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    curl \
     libsndfile1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy requirements and install dependencies needed for model downloading
+# Copy requirements and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Download SpaCy English model (required for clustering)
+# Download SpaCy English model (lightweight, required for clustering)
 RUN python -m spacy download en_core_web_sm
 
-# Create models directory and set up HuggingFace cache location
-RUN mkdir -p /models/.hf_models
-
-# Configure HuggingFace cache to use /models directory
-ENV TRANSFORMERS_CACHE=/models/.hf_models
-ENV HF_HOME=/models/.hf_models
-ENV HF_HUB_CACHE=/models/.hf_models
-
-# Download the FastText language identification model to /models
-RUN mkdir -p /models && \
-    curl -fSL https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin -o /models/lid.176.bin && \
-    ls -lh /models/lid.176.bin
-
-# Copy download script and download all AI models to /models/.hf_models
-COPY download_models.py .
-
-# Clean up unused files and cache before downloading models to free disk space
-RUN rm -rf ~/.cache/huggingface/hub /root/.cache/huggingface/hub /root/.hf_models /tmp/* /var/tmp/* && \
-    df -h
-
-# Download all AI models (translation, classification, clustering)
-RUN python download_models.py && rm download_models.py
-
-# Set final environment variables for model verification
-ENV FASTTEXT_MODEL_PATH=/models/lid.176.bin
-
-# The /models directory now contains:
-# - /models/lid.176.bin (FastText language detection model)
-# - /models/.hf_models/ (HuggingFace models cache)
-# SpaCy model is installed as a Python package and available system-wide
-
-# This image serves only as a model cache - no application code or serving logic
+# This base image contains only runtime dependencies.
+# AI models will be downloaded at runtime when needed.
