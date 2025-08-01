@@ -2,7 +2,7 @@
 # ==================================================
 # This Dockerfile builds a minimal runtime container that downloads models at startup.
 
-FROM ghcr.io/gaulatti/mistify-models:latest
+FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
 
 # Set environment variables for runtime behavior
 ENV MIN_SCORE=0.30
