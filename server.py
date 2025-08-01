@@ -63,6 +63,7 @@ app = FastAPI(
 # ---- Configuration -------------------------------------------------------------
 # Language Detection
 FASTTEXT_MODEL_PATH = os.getenv("FASTTEXT_MODEL_PATH", "lid.176.bin")
+FASTTEXT_MODEL_URL = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin"
 
 # Content Classification
 DEFAULT_CLASSIFICATION_LABELS = [
@@ -87,7 +88,7 @@ CLUSTERING_TOK_REMOVE = {"the", "a", "an", "of"}
 CLUSTERING_PUN_RE = re.compile(r"[^\w\s]")
 
 # Persistent cache for HuggingFace models - use HF_HOME environment variable if set
-HF_CACHE = pathlib.Path(os.environ.get("HF_HOME", pathlib.Path.home() / ".hf_models"))
+HF_CACHE = pathlib.Path(os.environ.get("HF_HOME", pathlib.Path.home() / ".cache" / "huggingface"))
 HF_CACHE.mkdir(parents=True, exist_ok=True)
 
 # ---- Global Variables ----------------------------------------------------------
@@ -102,6 +103,18 @@ clustering_lock = asyncio.Lock()
 thread_pool = ThreadPoolExecutor(max_workers=POOL_WORKERS)
 
 # ---- Model Initialization ------------------------------------------------------
+def download_fasttext_model(model_path: str, model_url: str) -> bool:
+    """Download FastText language detection model if not present"""
+    try:
+        import urllib.request
+        logger.info("🌍 Downloading FastText language detection model...")
+        urllib.request.urlretrieve(model_url, model_path)
+        logger.info("✓ FastText model downloaded successfully")
+        return True
+    except Exception as e:
+        logger.error("❌ Failed to download FastText model: %s", e)
+        return False
+
 def initialize_models():
     global fasttext_model, classifier, translator, embedder, nlp
 
@@ -109,20 +122,23 @@ def initialize_models():
 
     # Initialize FastText for language detection
     try:
-        if os.path.exists(FASTTEXT_MODEL_PATH):
-            logger.info("🔧 Loading FastText model from: %s", FASTTEXT_MODEL_PATH)
-            fasttext_model = fasttext.load_model(FASTTEXT_MODEL_PATH)
-            
-            # Test the model with a simple prediction
-            try:
-                test_labels, test_probs = fasttext_model.predict("Hello world", k=1)
-                logger.info("✓ FastText language detection model loaded and tested successfully")
-            except Exception as test_e:
-                logger.error("❌ FastText model loaded but failed test prediction: %s", test_e)
+        if not os.path.exists(FASTTEXT_MODEL_PATH):
+            logger.info("FastText model not found at %s, downloading...", FASTTEXT_MODEL_PATH)
+            if not download_fasttext_model(FASTTEXT_MODEL_PATH, FASTTEXT_MODEL_URL):
+                logger.error("❌ Failed to download FastText model")
                 fasttext_model = None
-        else:
-            logger.warning("❌ FastText model not found at %s", FASTTEXT_MODEL_PATH)
-            logger.info("Available files in current directory: %s", os.listdir('.'))
+                return
+        
+        logger.info("🔧 Loading FastText model from: %s", FASTTEXT_MODEL_PATH)
+        fasttext_model = fasttext.load_model(FASTTEXT_MODEL_PATH)
+        
+        # Test the model with a simple prediction
+        try:
+            test_labels, test_probs = fasttext_model.predict("Hello world", k=1)
+            logger.info("✓ FastText language detection model loaded and tested successfully")
+        except Exception as test_e:
+            logger.error("❌ FastText model loaded but failed test prediction: %s", test_e)
+            fasttext_model = None
     except Exception as e:
         logger.error("❌ Failed to load FastText model: %s", e)
         fasttext_model = None
@@ -153,75 +169,44 @@ def initialize_models():
                 hypothesis_template="This post is {}.",
                 torch_dtype=torch.float16 if device == "cuda" else torch.float32,
                 model_kwargs={"low_cpu_mem_usage": True} if device == "cuda" else {},
-                local_files_only=True  # Use only locally cached models
+                cache_dir=str(HF_CACHE)
             )
-            logger.info("✓ BART classification model loaded from cache")
+            logger.info("✓ BART classification model loaded successfully")
         except Exception as e:
-            logger.warning("⚠️ Failed to load model from cache, trying download: %s", e)
-            classifier = pipeline(
-                "zero-shot-classification",
-                model="valhalla/distilbart-mnli-12-3",
-                device=device_id,
-                hypothesis_template="This post is {}.",
-                torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-                model_kwargs={"low_cpu_mem_usage": True} if device == "cuda" else {}
-            )
-            logger.info("✓ BART classification model loaded (with download)")
+            logger.error("❌ Failed to load BART classification model: %s", e)
+            classifier = None
     except Exception as e:
         logger.error("❌ Failed to load BART model: %s", e)
 
     # Initialize Seamless M4T v2 for translation
     try:
         logger.info("🔧 Loading Seamless M4T v2 translation model...")
-        try:
-            # Try loading from cache first
-            translator = pipeline(
-                "translation",
-                model="facebook/seamless-m4t-v2-large",
-                torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-                trust_remote_code=True,
-                model_kwargs={
-                    "low_cpu_mem_usage": True,
-                    "device_map": "auto"  # Let accelerate handle device placement
-                },
-                local_files_only=True  # Use only locally cached models
-            )
-            logger.info("✓ Seamless M4T v2 translation model loaded from cache")
-        except Exception as cache_e:
-            logger.warning("⚠️ Failed to load from cache, trying download: %s", cache_e)
-            # Use accelerate for automatic device placement (don't specify device manually)
-            translator = pipeline(
-                "translation",
-                model="facebook/seamless-m4t-v2-large",
-                torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-                trust_remote_code=True,
-                model_kwargs={
-                    "low_cpu_mem_usage": True,
-                    "device_map": "auto"  # Let accelerate handle device placement
-                }
-            )
-            logger.info("✓ Seamless M4T v2 translation model loaded (with download)")
+        # Use accelerate for automatic device placement (don't specify device manually)
+        translator = pipeline(
+            "translation",
+            model="facebook/seamless-m4t-v2-large",
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+            trust_remote_code=True,
+            model_kwargs={
+                "low_cpu_mem_usage": True,
+                "device_map": "auto"  # Let accelerate handle device placement
+            },
+            cache_dir=str(HF_CACHE)
+        )
+        logger.info("✓ Seamless M4T v2 translation model loaded successfully")
     except Exception as e:
         logger.error("❌ Failed to load Seamless M4T v2 model: %s", e)
-        logger.warning("Translation functionality will be unavailable")
+        logger.warning("Translation functionality will use fallback model")
         # Fallback: try using a simpler multilingual model
         try:
             logger.info("🔧 Trying fallback translation model...")
-            try:
-                translator = pipeline(
-                    "translation",
-                    model="Helsinki-NLP/opus-mt-mul-en",
-                    device=device_id,
-                    local_files_only=True
-                )
-                logger.info("✓ Fallback translation model (Helsinki-NLP) loaded from cache")
-            except Exception:
-                translator = pipeline(
-                    "translation",
-                    model="Helsinki-NLP/opus-mt-mul-en",
-                    device=device_id
-                )
-                logger.info("✓ Fallback translation model (Helsinki-NLP) loaded (with download)")
+            translator = pipeline(
+                "translation",
+                model="Helsinki-NLP/opus-mt-mul-en",
+                device=device_id,
+                cache_dir=str(HF_CACHE)
+            )
+            logger.info("✓ Fallback translation model (Helsinki-NLP) loaded successfully")
         except Exception as fallback_e:
             logger.error("❌ Fallback translation model also failed: %s", fallback_e)
             translator = None
@@ -236,23 +221,12 @@ def initialize_models():
             embedder = SentenceTransformer(
                 "all-MiniLM-L6-v2",
                 device=torch_device,
-                cache_folder=str(HF_CACHE),
-                local_files_only=True  # Use only locally cached models
+                cache_folder=str(HF_CACHE)
             )
-            logger.info("✓ Sentence transformer embedder loaded")
+            logger.info("✓ Sentence transformer embedder loaded successfully")
         except Exception as e:
             logger.error("❌ Failed to load sentence transformer: %s", e)
-            logger.info("Trying without local_files_only flag...")
-            try:
-                embedder = SentenceTransformer(
-                    "all-MiniLM-L6-v2",
-                    device=torch_device,
-                    cache_folder=str(HF_CACHE)
-                )
-                logger.info("✓ Sentence transformer embedder loaded (with download)")
-            except Exception as e2:
-                logger.error("❌ Failed to load sentence transformer completely: %s", e2)
-                embedder = None
+            embedder = None
         
         # Initialize SpaCy model for entity extraction
         try:
