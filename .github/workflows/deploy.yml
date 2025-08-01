@@ -53,8 +53,9 @@ jobs:
             docker stop mistify || true
             docker rm mistify || true
 
-            # Run the new container on port 8000
+            # Run the new container on port 8000 with GPU support
             docker run -d --name mistify \
               -p 8000:8000 \
+              --gpus all \
               --restart=always \
               ghcr.io/${{ github.repository }}:latest
