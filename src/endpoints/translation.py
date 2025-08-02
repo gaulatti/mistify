@@ -1,0 +1,50 @@
+import asyncio
+import logging
+from fastapi import APIRouter, HTTPException, Request
+from ..models import TranslationRequest, TranslationResponse
+from ..helpers.async_wrappers import _translate_sync
+
+router = APIRouter()
+logger = logging.getLogger("unified-text-analysis")
+
+@router.post("/translate", response_model=TranslationResponse)
+async def translate_text(req: TranslationRequest, http_request: Request):
+    """Translate text to English using Seamless M4T v2"""
+    app_state = http_request.state.app_state
+    if app_state.translator is None:
+        raise HTTPException(status_code=503, detail="Translation model not available")
+
+    async with app_state.translation_lock:
+        try:
+            result = await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(
+                    app_state.thread_pool, 
+                    _translate_sync, 
+                    app_state.translator,
+                    req.text, 
+                    req.source_language,
+                    req.target_language
+                ),
+                timeout=app_state.config["TIMEOUT"] * 2,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=408, detail="Translation request timed out")
+        except Exception as e:
+            logger.error("❌ Translation error: %s", e)
+            raise HTTPException(status_code=500, detail=f"Translation failed: {str(e)}")
+
+    if result is None:
+        raise HTTPException(status_code=500, detail="Translation failed")
+
+    try:
+        translated_text = result[0].get('translation_text', '') if isinstance(result, list) and result else str(result)
+        logger.info("✓ Translation completed: %d -> %d chars", len(req.text), len(translated_text))
+        return TranslationResponse(
+            original_text=req.text,
+            translated_text=translated_text,
+            source_language=req.source_language,
+            target_language=req.target_language
+        )
+    except Exception as e:
+        logger.error("❌ Failed to parse translation result: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to parse translation result")

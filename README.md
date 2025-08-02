@@ -70,7 +70,7 @@ The easiest way to run Mistify is with Docker. The Docker build pre-downloads al
 You can also run the FastAPI server directly with Uvicorn.
 
 ```bash
-uvicorn server:app --host 0.0.0.0 --port 8000
+uvicorn src.server:app --host 0.0.0.0 --port 8000
 ```
 
 ## Configuration

@@ -1,4 +1,4 @@
-# Unified Text Analysis API - Base Dependencies Dockerfile
+# Mistify - Base Dependencies Dockerfile
 # ========================================================
 # This Dockerfile builds the base image with all dependencies and models.
 
