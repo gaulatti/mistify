@@ -42,7 +42,7 @@ warnings.filterwarnings("ignore", message="Both `max_new_tokens`.*and `max_lengt
 
 # ---- Logging Setup -------------------------------------------------------------
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("unified-text-analysis")
+logger = logging.getLogger("mistify")
 
 # ---- PyTorch Configuration -----------------------------------------------------
 torch.set_num_threads(1)
@@ -50,7 +50,7 @@ torch.set_num_interop_threads(1)
 
 # ---- FastAPI App ---------------------------------------------------------------
 app = FastAPI(
-    title="Unified Text Analysis API",
+    title="Mistify",
     description="Language detection, content classification, translation, sentence embeddings, and entity-aware clustering",
     version="1.3.0"
 )
