@@ -1,4 +1,5 @@
 # Python virtual environments
+.venv/
 venv/
 env/
 .env/
@@ -35,3 +36,14 @@ node_modules/
 
 # Test files (temporary)
 test_docker_refactoring.py
+
+# Configuration files
+.env
+*.js
+!jest.config.js
+*.d.ts
+node_modules
+
+# CDK asset staging directory
+.cdk.staging
+cdk.out
