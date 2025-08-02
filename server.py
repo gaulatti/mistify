@@ -292,10 +292,6 @@ class UnifiedAnalysisResponse(BaseModel):
     content_classification: Optional[ClassificationResponse] = None
     translation: Optional[TranslationResponse] = None
 
-# Embeddings I/O
-class EmbeddingsRequest(BaseModel):
-    __root__: List[Dict[str, Any]]
-
 # Clustering I/O
 class ClusteringRequest(BaseModel):
     texts: List[str]
