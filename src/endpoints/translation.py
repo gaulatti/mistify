@@ -23,7 +23,8 @@ async def translate_text(req: TranslationRequest, http_request: Request):
                     app_state.translator,
                     req.text, 
                     req.source_language,
-                    req.target_language
+                    req.target_language,
+                    getattr(app_state, 'translator_model_name', None)
                 ),
                 timeout=app_state.config["TIMEOUT"] * 2,
             )
@@ -37,7 +38,25 @@ async def translate_text(req: TranslationRequest, http_request: Request):
         raise HTTPException(status_code=500, detail="Translation failed")
 
     try:
-        translated_text = result[0].get('translation_text', '') if isinstance(result, list) and result else str(result)
+        # Handle different response formats from different models
+        if isinstance(result, list) and len(result) > 0:
+            # Standard transformers pipeline format
+            translated_text = result[0].get('translation_text', '')
+            if not translated_text:
+                # Try alternative key names
+                translated_text = result[0].get('generated_text', '') or result[0].get('text', '')
+        elif isinstance(result, dict):
+            # Single result format
+            translated_text = result.get('translation_text', '') or result.get('generated_text', '') or result.get('text', '')
+        else:
+            # Fallback to string conversion
+            translated_text = str(result)
+        
+        # Validate translation result
+        if not translated_text or translated_text.strip() == "":
+            logger.warning("Translation result was empty, returning original text")
+            translated_text = req.text
+            
         logger.info("✓ Translation completed: %d -> %d chars", len(req.text), len(translated_text))
         return TranslationResponse(
             original_text=req.text,
@@ -46,5 +65,5 @@ async def translate_text(req: TranslationRequest, http_request: Request):
             target_language=req.target_language
         )
     except Exception as e:
-        logger.error("❌ Failed to parse translation result: %s", e)
+        logger.error("❌ Failed to parse translation result: %s, result type: %s", e, type(result))
         raise HTTPException(status_code=500, detail="Failed to parse translation result")

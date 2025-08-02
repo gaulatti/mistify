@@ -80,6 +80,7 @@ app_state.config["HF_CACHE"].mkdir(parents=True, exist_ok=True)
     app_state.translator,
     app_state.embedder,
     app_state.nlp,
+    app_state.translator_model_name,
 ) = initialize_models(app_state.config)
 app_state.classification_lock = asyncio.Lock()
 app_state.translation_lock = asyncio.Lock()
