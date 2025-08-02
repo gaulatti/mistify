@@ -5,7 +5,7 @@ from src.models import ClassificationRequest, ClassificationResponse
 from src.helpers.async_wrappers import _classify_sync
 
 router = APIRouter()
-logger = logging.getLogger("unified-text-analysis")
+logger = logging.getLogger("mistify")
 
 
 @router.post("/classify", response_model=ClassificationResponse)
