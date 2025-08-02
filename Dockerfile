@@ -15,6 +15,10 @@ ENV MIN_MARGIN=0.10
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org -r requirements.txt
+
+# Download SpaCy English model
+RUN python -m spacy download en_core_web_sm
+
 COPY server.py .
 
 # Default FastText model path (will be downloaded at runtime if not present)
