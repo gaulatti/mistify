@@ -7,6 +7,7 @@ from src.helpers.async_wrappers import _classify_sync
 router = APIRouter()
 logger = logging.getLogger("unified-text-analysis")
 
+
 @router.post("/classify", response_model=ClassificationResponse)
 async def classify_content(req: ClassificationRequest, http_request: Request):
     """Classify the content of the input text using BART"""
@@ -44,7 +45,8 @@ async def classify_content(req: ClassificationRequest, http_request: Request):
     best_score = scores[0]
     best_label = labels_result[0]
 
-    if best_score < app_state.config["MIN_SCORE"] or (best_score - (scores[1] if len(scores) > 1 else 0.0)) < app_state.config["MIN_MARGIN"]:
+    if best_score < app_state.config["MIN_SCORE"] or (best_score - (scores[1] if len(scores) > 1 else 0.0)) < \
+            app_state.config["MIN_MARGIN"]:
         best_label = "uncertain"
 
     logger.info("✓ Classification: label=%s, score=%.2f", best_label, best_score)

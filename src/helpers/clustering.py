@@ -34,11 +34,11 @@ def scrub_text(s: str) -> str:
 def grouper(seq, n):
     """Group sequence into chunks of size n"""
     for i in range(0, len(seq), n):
-        yield seq[i : i + n]
+        yield seq[i: i + n]
 
 
 def discover_aliases(
-    ents_per_doc: List[Set[str]], embedder: SentenceTransformer
+        ents_per_doc: List[Set[str]], embedder: SentenceTransformer
 ) -> Dict[str, str]:
     """Discover entity aliases using cosine similarity clustering"""
     if not embedder:
@@ -90,7 +90,7 @@ def get_entities(docs, embedder) -> List[Set[str]]:
 
 
 def get_primary_topics(
-    texts: List[str], classifier, show_bar: bool = False
+        texts: List[str], classifier, show_bar: bool = False
 ) -> List[str]:
     """Get primary topic classification for texts"""
     if not classifier:
@@ -108,7 +108,7 @@ def get_primary_topics(
 
 
 def build_clustering_graph(
-    texts: List[str], nlp, embedder, classifier, show_bar: bool = False, config: Dict = None
+        texts: List[str], nlp, embedder, classifier, show_bar: bool = False, config: Dict = None
 ):
     """Build similarity graph for clustering"""
     if not nlp or not embedder:

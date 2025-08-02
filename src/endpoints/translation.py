@@ -7,6 +7,7 @@ from src.helpers.async_wrappers import _translate_sync
 router = APIRouter()
 logger = logging.getLogger("unified-text-analysis")
 
+
 @router.post("/translate", response_model=TranslationResponse)
 async def translate_text(req: TranslationRequest, http_request: Request):
     """Translate text to English using Seamless M4T v2"""
@@ -18,10 +19,10 @@ async def translate_text(req: TranslationRequest, http_request: Request):
         try:
             result = await asyncio.wait_for(
                 asyncio.get_running_loop().run_in_executor(
-                    app_state.thread_pool, 
-                    _translate_sync, 
+                    app_state.thread_pool,
+                    _translate_sync,
                     app_state.translator,
-                    req.text, 
+                    req.text,
                     req.source_language,
                     req.target_language,
                     getattr(app_state, 'translator_model_name', None)
@@ -47,16 +48,17 @@ async def translate_text(req: TranslationRequest, http_request: Request):
                 translated_text = result[0].get('generated_text', '') or result[0].get('text', '')
         elif isinstance(result, dict):
             # Single result format
-            translated_text = result.get('translation_text', '') or result.get('generated_text', '') or result.get('text', '')
+            translated_text = result.get('translation_text', '') or result.get('generated_text', '') or result.get(
+                'text', '')
         else:
             # Fallback to string conversion
             translated_text = str(result)
-        
+
         # Validate translation result
         if not translated_text or translated_text.strip() == "":
             logger.warning("Translation result was empty, returning original text")
             translated_text = req.text
-            
+
         logger.info("✓ Translation completed: %d -> %d chars", len(req.text), len(translated_text))
         return TranslationResponse(
             original_text=req.text,
