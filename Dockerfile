@@ -1,4 +1,4 @@
-# Unified Text Analysis API - Application Dockerfile
+# Mistify - Application Dockerfile
 # ==================================================
 # This Dockerfile builds the application using the base image with dependencies.
 
@@ -7,9 +7,9 @@
 FROM ghcr.io/gaulatti/mistify-base:latest
 
 # Copy application source code
-COPY --chown=appuser:appuser server.py .
+COPY --chown=appuser:appuser src .
 
 # Switch to non-root user
 USER appuser
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.server:app", "--host", "0.0.0.0", "--port", "8000"]
