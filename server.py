@@ -827,18 +827,34 @@ async def translate_text(request: TranslationRequest):
         raise HTTPException(status_code=500, detail="Failed to parse translation result")
 
 @app.post("/embed")
-async def embed_items(request: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+async def embed_items(request: List[dict]) -> List[dict]:
     """
     Compute sentence embeddings for an array of items.
     Uses item['content'] as the text field.
     Returns the same items with a new key "embeddings" (list[float], len=384).
     """
+    # Log incoming request details
+    logger.info("🔍 /embed endpoint called")
+    logger.info(f"📦 Request type: {type(request)}")
+    logger.info(f"📊 Request length: {len(request) if hasattr(request, '__len__') else 'unknown'}")
+    
+    if request:
+        logger.info(f"🔬 First item type: {type(request[0]) if len(request) > 0 else 'empty'}")
+        if len(request) > 0 and isinstance(request[0], dict):
+            logger.info(f"🗝️ First item keys: {list(request[0].keys())}")
+            if 'content' in request[0]:
+                content_preview = str(request[0]['content'])[:100]
+                logger.info(f"📝 First item content preview: {content_preview}...")
+    
     if embedder is None:
         raise HTTPException(status_code=503, detail="Embeddings model not available")
 
     items = request or []
     if not isinstance(items, list):
+        logger.error(f"❌ Input validation failed: Expected list, got {type(items)}")
         raise HTTPException(status_code=400, detail="Input must be a list")
+
+    logger.info(f"✅ Processing {len(items)} items")
 
     # Hardcoded configuration
     text_field = "content"
@@ -848,24 +864,35 @@ async def embed_items(request: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     texts = []
     for idx, it in enumerate(items):
         if not isinstance(it, dict):
+            logger.error(f"❌ Item validation failed at index {idx}: Expected dict, got {type(it)}")
             raise HTTPException(status_code=400, detail=f"Item at index {idx} is not an object")
+        
         text = str(it.get(text_field, "") or "")
+        logger.debug(f"📝 Item {idx}: content length = {len(text)}")
         texts.append(text)
 
     if not texts:
+        logger.warning("⚠️ No texts to process, returning original items")
         return items
 
+    logger.info(f"🔢 Total texts to embed: {len(texts)}")
+
     try:
+        logger.info("🚀 Starting embedding computation...")
         vecs = await asyncio.get_running_loop().run_in_executor(
             thread_pool, _embed_sync, texts, batch_size, normalize
         )
+        logger.info(f"✅ Embedding computation completed: {len(vecs)} vectors generated")
     except Exception as e:
         logger.error("❌ Embedding failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Embedding failed: {str(e)}")
 
-    for it, v in zip(items, vecs):
+    logger.info("📋 Adding embeddings to items...")
+    for idx, (it, v) in enumerate(zip(items, vecs)):
         it["embeddings"] = v.tolist()
+        logger.debug(f"✅ Added embeddings to item {idx}: vector length = {len(v)}")
 
+    logger.info(f"🎉 Successfully processed {len(items)} items with embeddings")
     return items
 
 @app.post("/cluster", response_model=ClusteringResponse)
