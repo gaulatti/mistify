@@ -1,6 +1,6 @@
 import logging
 from fastapi import APIRouter, HTTPException, Request
-from ..models import LanguageDetectionRequest, LanguageDetectionResponse
+from src.models import LanguageDetectionRequest, LanguageDetectionResponse
 
 router = APIRouter()
 logger = logging.getLogger("unified-text-analysis")
