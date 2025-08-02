@@ -144,13 +144,6 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
         # Map target language
         mapped_target = lang_mapping.get(target_lang[:2].lower(), "eng" if is_seamless else "en")
         
-        # Try translation with proper parameters
-        translation_params = {
-            "max_length": 512,
-            "do_sample": False,
-            "num_beams": 1
-        }
-        
         if is_seamless:
             # Seamless M4T requires both src_lang and tgt_lang
             if source_lang:
@@ -159,14 +152,19 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                 # Default to English if no source language detected
                 mapped_source = "eng"
                 
+            # Use minimal parameters for Seamless M4T to avoid model_kwargs issues
             result = translator(
                 text, 
                 src_lang=mapped_source, 
-                tgt_lang=mapped_target,
-                **translation_params
+                tgt_lang=mapped_target
             )
         else:
-            # Other models might work with just target language
+            # For other models, use standard translation parameters
+            translation_params = {
+                "max_length": 512,
+                "do_sample": False,
+                "num_beams": 1
+            }
             if source_lang:
                 mapped_source = lang_mapping.get(source_lang[:2].lower(), source_lang)
                 # For Helsinki models, use standard format
@@ -194,14 +192,13 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
         try:
             logger.warning("Retrying translation with minimal parameters")
             if is_seamless:
-                # For Seamless M4T, both src_lang and tgt_lang are required
+                # For Seamless M4T, use only required parameters
                 fallback_source = seamless_lang_mapping.get(source_lang[:2].lower() if source_lang else "en", "eng")
                 fallback_target = seamless_lang_mapping.get(target_lang[:2].lower(), "eng")
                 result = translator(
                     text,
                     src_lang=fallback_source,
-                    tgt_lang=fallback_target,
-                    max_length=400
+                    tgt_lang=fallback_target
                 )
             else:
                 # For other models, try without source language specification
