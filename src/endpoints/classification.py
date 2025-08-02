@@ -1,8 +1,8 @@
 import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Request
-from ..models import ClassificationRequest, ClassificationResponse
-from ..helpers.async_wrappers import _classify_sync
+from src.models import ClassificationRequest, ClassificationResponse
+from src.helpers.async_wrappers import _classify_sync
 
 router = APIRouter()
 logger = logging.getLogger("unified-text-analysis")

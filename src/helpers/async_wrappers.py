@@ -14,7 +14,7 @@ async def run_in_executor(loop, executor, func, *args):
 def _cluster_sync(texts: List[str], nlp, embedder, classifier, config: Dict = None, debug: bool = False):
     """Synchronous clustering function for thread execution"""
     from .clustering import build_clustering_graph, split_large_communities
-    from ..models import ClusterGroup
+    from src.models import ClusterGroup
     import itertools
     import numpy as np
     from networkx.algorithms.community import louvain_communities

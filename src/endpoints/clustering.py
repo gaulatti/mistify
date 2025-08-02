@@ -2,8 +2,8 @@ import asyncio
 import logging
 import time
 from fastapi import APIRouter, HTTPException, Request
-from ..models import ClusteringRequest, ClusteringResponse, ClusterGroup
-from ..helpers.async_wrappers import _cluster_sync
+from src.models import ClusteringRequest, ClusteringResponse, ClusterGroup
+from src.helpers.async_wrappers import _cluster_sync
 
 router = APIRouter()
 logger = logging.getLogger("unified-text-analysis")

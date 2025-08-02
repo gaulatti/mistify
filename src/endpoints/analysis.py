@@ -1,6 +1,6 @@
 import logging
 from fastapi import APIRouter, Request
-from ..models import (
+from src.models import (
     UnifiedAnalysisRequest, UnifiedAnalysisResponse,
     LanguageDetectionRequest, TranslationRequest, ClassificationRequest,
     TranslationResponse

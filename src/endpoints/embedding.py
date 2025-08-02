@@ -2,8 +2,8 @@ import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Request
 from typing import List
-from ..models import EmbeddingItem
-from ..helpers.async_wrappers import _embed_sync
+from src.models import EmbeddingItem
+from src.helpers.async_wrappers import _embed_sync
 
 router = APIRouter()
 logger = logging.getLogger("unified-text-analysis")

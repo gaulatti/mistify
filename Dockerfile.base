@@ -32,7 +32,6 @@ RUN mkdir -p /home/appuser/.cache/huggingface/hub \
 
 # Set cache environment variables
 ENV HF_HOME=/home/appuser/.hf_models
-ENV TRANSFORMERS_CACHE=/home/appuser/.cache/huggingface/hub
 
 USER appuser
 

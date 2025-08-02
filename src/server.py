@@ -29,8 +29,8 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, Request
 from types import SimpleNamespace
 
-from helpers.models import initialize_models
-from endpoints import (
+from src.helpers.models import initialize_models
+from src.endpoints import (
     language, classification, translation, embedding, clustering, analysis
 )
 
