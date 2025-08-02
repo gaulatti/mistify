@@ -2,6 +2,7 @@
 
 import logging
 import os
+import urllib.request
 import torch
 import fasttext
 import spacy
@@ -73,16 +74,21 @@ def initialize_models(config):
 
     # Translator
     translator = None
+    translator_model_name = None
     try:
         logger.info("🔧 Loading Seamless M4T v2 translation model...")
+        # Use proper model_kwargs for Seamless M4T - don't include cache_dir here
+        model_kwargs = {"low_cpu_mem_usage": True} if device == "cuda" else {}
         translator = pipeline(
             "translation",
             model="facebook/seamless-m4t-v2-large",
+            device=device_id,
             torch_dtype=torch.float16 if device == "cuda" else torch.float32,
             trust_remote_code=True,
-            model_kwargs={"low_cpu_mem_usage": True, "device_map": "auto"},
+            model_kwargs=model_kwargs,
             cache_dir=str(config["HF_CACHE"])
         )
+        translator_model_name = "seamless-m4t-v2"
         logger.info("✓ Seamless M4T v2 translation model loaded successfully")
     except Exception as e:
         logger.error("❌ Failed to load Seamless M4T v2 model: %s", e)
@@ -95,9 +101,11 @@ def initialize_models(config):
                 device=device_id,
                 cache_dir=str(config["HF_CACHE"])
             )
+            translator_model_name = "helsinki-nlp"
             logger.info("✓ Fallback translation model (Helsinki-NLP) loaded successfully")
         except Exception as fallback_e:
             logger.error("❌ Fallback translation model also failed: %s", fallback_e)
+            translator_model_name = "none"
 
     # Embedder
     embedder = None
@@ -121,4 +129,8 @@ def initialize_models(config):
         logger.error("❌ Failed to load SpaCy model: %s", e)
         logger.info("Please install SpaCy English model: python -m spacy download en_core_web_sm")
 
-    return fasttext_model, classifier, translator, embedder, nlp
+    # Ensure translator_model_name is always set
+    if translator_model_name is None:
+        translator_model_name = "none"
+
+    return fasttext_model, classifier, translator, embedder, nlp, translator_model_name
