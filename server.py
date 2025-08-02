@@ -294,16 +294,7 @@ class UnifiedAnalysisResponse(BaseModel):
 
 # Embeddings I/O
 class EmbeddingsRequest(BaseModel):
-    items: List[Dict[str, Any]]
-    text_field: str = "content"
-    batch_size: int = 64
-    normalize: bool = True
-
-class EmbeddingsResponse(BaseModel):
-    items: List[Dict[str, Any]]
-    model: str
-    dim: int
-    device: str
+    __root__: List[Dict[str, Any]]
 
 # Clustering I/O
 class ClusteringRequest(BaseModel):
@@ -839,40 +830,38 @@ async def translate_text(request: TranslationRequest):
         logger.error("❌ Failed to parse translation result: %s", e)
         raise HTTPException(status_code=500, detail="Failed to parse translation result")
 
-@app.post("/embed", response_model=EmbeddingsResponse)
-async def embed_items(request: EmbeddingsRequest):
+@app.post("/embed")
+async def embed_items(request: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Compute sentence embeddings for an array of items.
-    For each item, uses item[request.text_field] (default: 'content') as the text.
+    Uses item['content'] as the text field.
     Returns the same items with a new key "embeddings" (list[float], len=384).
     """
     if embedder is None:
         raise HTTPException(status_code=503, detail="Embeddings model not available")
 
-    items = request.items or []
+    items = request or []
     if not isinstance(items, list):
-        raise HTTPException(status_code=400, detail="`items` must be a list")
+        raise HTTPException(status_code=400, detail="Input must be a list")
+
+    # Hardcoded configuration
+    text_field = "content"
+    batch_size = 64
+    normalize = True
 
     texts = []
     for idx, it in enumerate(items):
         if not isinstance(it, dict):
             raise HTTPException(status_code=400, detail=f"Item at index {idx} is not an object")
-        text = str(it.get(request.text_field, "") or "")
+        text = str(it.get(text_field, "") or "")
         texts.append(text)
 
     if not texts:
-        return EmbeddingsResponse(
-            items=items,
-            model="sentence-transformers/all-MiniLM-L6-v2",
-            dim=384,
-            device=("cuda" if torch.cuda.is_available()
-                    else "mps" if torch.backends.mps.is_available()
-                    else "cpu"),
-        )
+        return items
 
     try:
         vecs = await asyncio.get_running_loop().run_in_executor(
-            thread_pool, _embed_sync, texts, request.batch_size, request.normalize
+            thread_pool, _embed_sync, texts, batch_size, normalize
         )
     except Exception as e:
         logger.error("❌ Embedding failed: %s", e)
@@ -881,14 +870,7 @@ async def embed_items(request: EmbeddingsRequest):
     for it, v in zip(items, vecs):
         it["embeddings"] = v.tolist()
 
-    return EmbeddingsResponse(
-        items=items,
-        model="sentence-transformers/all-MiniLM-L6-v2",
-        dim=int(vecs.shape[1]) if vecs.ndim == 2 else 384,
-        device=("cuda" if torch.cuda.is_available()
-                else "mps" if torch.backends.mps.is_available()
-                else "cpu"),
-    )
+    return items
 
 @app.post("/cluster", response_model=ClusteringResponse)
 async def cluster_texts(request: ClusteringRequest):
@@ -1056,6 +1038,26 @@ def health():
     }
 
 @app.get("/")
+def root():
+    """Root endpoint with API information"""
+    return {
+        "service": "Unified Text Analysis API",
+        "version": "1.2.0",
+        "capabilities": ["language_detection", "content_classification", "translation", "text_clustering"],
+        "endpoints": {
+            "language_detection": "/detect",
+            "content_classification": "/classify",
+            "translation": "/translate",
+            "embeddings": "/embed",
+            "text_clustering": "/cluster",
+            "unified_analysis": "/analyze",
+            "health": "/health"
+        }
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 def root():
     """Root endpoint with API information"""
     return {
