@@ -150,46 +150,42 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-            # Choose appropriate language mapping
-            lang_mapping = seamless_lang_mapping if is_seamless else standard_lang_mapping
-            mapped_target = lang_mapping.get(target_lang[:2].lower(), "eng" if is_seamless else "en")
-
             if is_seamless:
                 # Seamless M4T requires both src_lang and tgt_lang
                 if source_lang:
-                    mapped_source = lang_mapping.get(source_lang[:2].lower(), "eng")
+                    mapped_source = seamless_lang_mapping.get(source_lang[:2].lower(), "eng")
                 else:
                     mapped_source = "eng"
 
+                # For Seamless M4T, target is always English ("eng")
                 result = translator(
                     text_to_translate,
                     src_lang=mapped_source,
-                    tgt_lang=mapped_target
+                    tgt_lang="eng",  # Always translate to English
+                    max_length=max(200, len(text_to_translate.split()) * 2)  # Dynamic max_length
                 )
             else:
                 # For other models, use standard translation parameters
-                if suggested_max_length:
-                    translation_params = {
-                        "max_length": suggested_max_length,
-                        "do_sample": False,
-                        "num_beams": 1,
-                        "early_stopping": True
-                    }
-                else:
-                    translation_params = {
-                        "do_sample": False,
-                        "num_beams": 1
-                    }
+                # Calculate appropriate max_length based on input
+                input_tokens = len(text_to_translate.split())
+                dynamic_max_length = max(100, min(512, input_tokens * 2))
+
+                translation_params = {
+                    "max_length": dynamic_max_length,
+                    "do_sample": False,
+                    "num_beams": 1,
+                    "early_stopping": True
+                }
 
                 if source_lang:
-                    mapped_source = lang_mapping.get(source_lang[:2].lower(), source_lang)
+                    mapped_source = standard_lang_mapping.get(source_lang[:2].lower(), source_lang)
                     if model_name and "helsinki" in model_name.lower():
                         result = translator(text_to_translate, **translation_params)
                     else:
                         result = translator(
                             text_to_translate,
                             src_lang=mapped_source,
-                            tgt_lang=mapped_target,
+                            tgt_lang="en",  # Always translate to English
                             **translation_params
                         )
                 else:
@@ -263,11 +259,10 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
 
         if is_seamless:
             fallback_source = seamless_lang_mapping.get(source_lang[:2].lower() if source_lang else "en", "eng")
-            fallback_target = seamless_lang_mapping.get(target_lang[:2].lower(), "eng")
             result = translator(
                 minimal_text,
                 src_lang=fallback_source,
-                tgt_lang=fallback_target
+                tgt_lang="eng"  # Always translate to English
             )
         else:
             result = translator(minimal_text)
