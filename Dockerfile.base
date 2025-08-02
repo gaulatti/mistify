@@ -21,9 +21,19 @@ RUN python -m spacy download en_core_web_sm
 # Default FastText model path (will be downloaded at runtime if not present)
 ENV FASTTEXT_MODEL_PATH=lid.176.bin
 
-# Create a non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-RUN chown -R appuser:appuser /app
+# Create a non-root user for security with home directory
+RUN groupadd -r appuser && useradd -r -g appuser -m -d /home/appuser appuser
+
+# Create cache directories with proper permissions
+RUN mkdir -p /home/appuser/.cache/huggingface/hub \
+    && mkdir -p /home/appuser/.hf_models \
+    && chown -R appuser:appuser /home/appuser \
+    && chown -R appuser:appuser /app
+
+# Set cache environment variables
+ENV HF_HOME=/home/appuser/.hf_models
+ENV TRANSFORMERS_CACHE=/home/appuser/.cache/huggingface/hub
+
 USER appuser
 
 EXPOSE 8000

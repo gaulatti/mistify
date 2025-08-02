@@ -61,4 +61,6 @@ jobs:
               -p 8000:8000 \
               --gpus all \
               --restart=always \
+              -v mistify-cache:/home/appuser/.cache \
+              -v mistify-models:/home/appuser/.hf_models \
               ghcr.io/${{ github.repository }}:latest
