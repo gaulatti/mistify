@@ -1,4 +1,4 @@
-# server.py — Unified Text Analysis API
+# server.py — Mistify API
 # =====================================
 # Language detection, content classification, translation, text clustering,
 # and batch sentence embeddings generation in one service.
