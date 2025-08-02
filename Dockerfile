@@ -12,4 +12,6 @@ COPY --chown=appuser:appuser src ./src
 # Switch to non-root user
 USER appuser
 
-CMD ["uvicorn", "src.server:app", "--host", "0.0.0.0", "--port", "8000"]
+# Set PYTHONPATH to include src directory and run from src directory
+WORKDIR /app/src
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
