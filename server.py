@@ -293,6 +293,12 @@ class UnifiedAnalysisResponse(BaseModel):
     translation: Optional[TranslationResponse] = None
 
 # Clustering I/O
+class EmbeddingItem(BaseModel):
+    content: str
+    # Allow any additional fields
+    class Config:
+        extra = "allow"
+
 class ClusteringRequest(BaseModel):
     texts: List[str]
     similarity_entity: Optional[float] = CLUSTERING_SIM_ENTITY
@@ -600,19 +606,19 @@ def _translate_sync(text: str, source_lang: Optional[str] = None, target_lang: s
             if source_lang:
                 mapped_source = lang_mapping.get(source_lang[:2], source_lang)
                 logger.info("Mapped source language: %s", mapped_source)
+                # For Seamless M4T, use the correct parameter format
                 result = translator(
                     text,
                     src_lang=mapped_source,
-                    tgt_lang=mapped_target,
-                    max_length=max_length
+                    tgt_lang=mapped_target
                 )
             else:
                 # Auto-detect source language but always specify target
                 logger.info("Auto-detecting source language")
+                # For Seamless M4T, just specify target language
                 result = translator(
                     text, 
-                    tgt_lang=mapped_target,
-                    max_length=max_length
+                    tgt_lang=mapped_target
                 )
         
         # Log the result for debugging
@@ -827,7 +833,7 @@ async def translate_text(request: TranslationRequest):
         raise HTTPException(status_code=500, detail="Failed to parse translation result")
 
 @app.post("/embed")
-async def embed_items(request: List[dict]) -> List[dict]:
+async def embed_items(request: List[EmbeddingItem]) -> List[dict]:
     """
     Compute sentence embeddings for an array of items.
     Uses item['content'] as the text field.
@@ -849,7 +855,7 @@ async def embed_items(request: List[dict]) -> List[dict]:
     if embedder is None:
         raise HTTPException(status_code=503, detail="Embeddings model not available")
 
-    items = request or []
+    items = [item.dict() for item in request] or []
     if not isinstance(items, list):
         logger.error(f"❌ Input validation failed: Expected list, got {type(items)}")
         raise HTTPException(status_code=400, detail="Input must be a list")
