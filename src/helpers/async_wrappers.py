@@ -157,12 +157,14 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                 else:
                     mapped_source = "eng"
 
-                # For Seamless M4T, target is always English ("eng")
+                # For Seamless M4T, use max_new_tokens instead of max_length to avoid conflicts
+                # and ensure tgt_lang is properly set
                 result = translator(
                     text_to_translate,
                     src_lang=mapped_source,
                     tgt_lang="eng",  # Always translate to English
-                    max_length=max(200, len(text_to_translate.split()) * 2)  # Dynamic max_length
+                    max_new_tokens=max(100, len(text_to_translate.split()) * 2),  # Use max_new_tokens instead
+                    do_sample=False  # Ensure deterministic output
                 )
             else:
                 # For other models, use standard translation parameters
