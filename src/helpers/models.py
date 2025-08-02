@@ -77,15 +77,12 @@ def initialize_models(config):
     translator_model_name = None
     try:
         logger.info("🔧 Loading Seamless M4T v2 translation model...")
-        # Use proper model_kwargs for Seamless M4T - don't include cache_dir here
-        model_kwargs = {"low_cpu_mem_usage": True} if device == "cuda" else {}
+        # Use minimal parameters to avoid model_kwargs issues with Seamless M4T
         translator = pipeline(
             "translation",
             model="facebook/seamless-m4t-v2-large",
             device=device_id,
-            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
             trust_remote_code=True,
-            model_kwargs=model_kwargs,
             cache_dir=str(config["HF_CACHE"])
         )
         translator_model_name = "seamless-m4t-v2"
