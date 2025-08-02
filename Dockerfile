@@ -1,28 +1,15 @@
 # Unified Text Analysis API - Application Dockerfile
 # ==================================================
-# This Dockerfile builds a minimal runtime container that downloads models at startup.
+# This Dockerfile builds the application using the base image with dependencies.
 
-FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
+# Use the base image with all dependencies pre-installed
+# Build base image with: docker build -f Dockerfile.base -t mistify-base .
+FROM ghcr.io/gaulatti/mistify-base:latest
 
-# Set environment variables for runtime behavior
-ENV MIN_SCORE=0.30
-ENV MIN_MARGIN=0.10
+# Copy application source code
+COPY --chown=appuser:appuser server.py .
 
-# Remove offline-first environment variables to enable runtime downloads
-# Models will be downloaded from remote sources when needed
+# Switch to non-root user
+USER appuser
 
-# Set workdir and copy app source code
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org -r requirements.txt
-
-# Download SpaCy English model
-RUN python -m spacy download en_core_web_sm
-
-COPY server.py .
-
-# Default FastText model path (will be downloaded at runtime if not present)
-ENV FASTTEXT_MODEL_PATH=lid.176.bin
-
-EXPOSE 8000
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]

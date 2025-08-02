@@ -1,0 +1,29 @@
+# Unified Text Analysis API - Base Dependencies Dockerfile
+# ========================================================
+# This Dockerfile builds the base image with all dependencies and models.
+
+FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
+
+# Set environment variables for runtime behavior
+ENV MIN_SCORE=0.30
+ENV MIN_MARGIN=0.10
+
+# Set workdir
+WORKDIR /app
+
+# Copy and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org -r requirements.txt
+
+# Download SpaCy English model
+RUN python -m spacy download en_core_web_sm
+
+# Default FastText model path (will be downloaded at runtime if not present)
+ENV FASTTEXT_MODEL_PATH=lid.176.bin
+
+# Create a non-root user for security
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+RUN chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000

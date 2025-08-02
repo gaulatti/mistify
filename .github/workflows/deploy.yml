@@ -3,6 +3,9 @@ name: Deploy
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'Dockerfile.base'
+      - 'requirements.txt'
   workflow_dispatch:
 
 jobs:
@@ -26,6 +29,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.DEPLOYMENT_TOKEN }}
+
+      - name: Pull latest base image
+        run: |
+          docker pull ghcr.io/${{ github.repository }}-base:latest
 
       - name: Build Docker image
         run: |
