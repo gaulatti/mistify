@@ -16,7 +16,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org -r requirements.txt
 COPY server.py .
-COPY test_translation.py .
 
 # Default FastText model path (will be downloaded at runtime if not present)
 ENV FASTTEXT_MODEL_PATH=lid.176.bin

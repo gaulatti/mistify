@@ -212,13 +212,7 @@ Health check with system information.
 
 ## Installation & Setup
 
-### Quick Setup (Recommended)
-```bash
-# Run the automated setup script
-./setup.sh
-```
-
-### Manual Installation
+### Installation
 
 #### Install Dependencies
 ```bash
@@ -271,14 +265,6 @@ All models are cached in `/root/.hf_models` with offline mode enforced via `TRAN
 ```bash
 # Run the server
 uvicorn server:app --host 0.0.0.0 --port 8000
-```
-
-## Testing
-
-Run the provided test script to verify all functionality:
-
-```bash
-python test_translation.py
 ```
 
 ## Migration from Separate Services
