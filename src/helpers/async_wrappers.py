@@ -112,110 +112,175 @@ def _classify_sync(classifier, text: str, labels: List[str]):
 
 def _translate_sync(translator, text: str, source_lang: Optional[str] = None, target_lang: str = "eng",
                     model_name: str = None):
-    """Synchronous translation function for thread execution"""
+    """Synchronous translation function with progressive fallback strategies"""
+
+    # Initialize variables
+    is_seamless = model_name and "seamless" in model_name.lower()
+    input_length = len(text.split())
+
+    # Model-specific limits based on actual capabilities
+    if is_seamless:
+        # Seamless M4T v2 can handle longer sequences (up to ~1024 tokens)
+        max_input_tokens = 800  # Conservative but reasonable limit
+        # For seamless, we don't use max_length parameter as it conflicts
+        suggested_max_length = None
+    else:
+        # Helsinki-NLP and other models typically handle 512 tokens well
+        max_input_tokens = 450
+        suggested_max_length = max(150, min(512, int(input_length * 1.8)))
+
+    # Language code mappings
+    seamless_lang_mapping = {
+        "en": "eng", "es": "spa", "fr": "fra", "de": "deu", "it": "ita",
+        "pt": "por", "ru": "rus", "zh": "cmn", "ja": "jpn", "ko": "kor",
+        "ar": "arb", "hi": "hin", "tr": "tur", "pl": "pol", "nl": "nld",
+        "he": "heb", "sv": "swe", "da": "dan", "no": "nor", "fi": "fin"
+    }
+
+    standard_lang_mapping = {
+        "en": "en", "es": "es", "fr": "fr", "de": "de", "it": "it",
+        "pt": "pt", "ru": "ru", "zh": "zh", "ja": "ja", "ko": "ko",
+        "ar": "ar", "hi": "hi", "tr": "tr", "pl": "pl", "nl": "nl",
+        "he": "he", "sv": "sv", "da": "da", "no": "no", "fi": "fi"
+    }
+
+    def _attempt_translation(text_to_translate, attempt_name=""):
+        """Helper function to attempt translation with proper error handling"""
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            # Choose appropriate language mapping
+            lang_mapping = seamless_lang_mapping if is_seamless else standard_lang_mapping
+            mapped_target = lang_mapping.get(target_lang[:2].lower(), "eng" if is_seamless else "en")
+
+            if is_seamless:
+                # Seamless M4T requires both src_lang and tgt_lang
+                if source_lang:
+                    mapped_source = lang_mapping.get(source_lang[:2].lower(), "eng")
+                else:
+                    mapped_source = "eng"
+
+                result = translator(
+                    text_to_translate,
+                    src_lang=mapped_source,
+                    tgt_lang=mapped_target
+                )
+            else:
+                # For other models, use standard translation parameters
+                if suggested_max_length:
+                    translation_params = {
+                        "max_length": suggested_max_length,
+                        "do_sample": False,
+                        "num_beams": 1,
+                        "early_stopping": True
+                    }
+                else:
+                    translation_params = {
+                        "do_sample": False,
+                        "num_beams": 1
+                    }
+
+                if source_lang:
+                    mapped_source = lang_mapping.get(source_lang[:2].lower(), source_lang)
+                    if model_name and "helsinki" in model_name.lower():
+                        result = translator(text_to_translate, **translation_params)
+                    else:
+                        result = translator(
+                            text_to_translate,
+                            src_lang=mapped_source,
+                            tgt_lang=mapped_target,
+                            **translation_params
+                        )
+                else:
+                    result = translator(text_to_translate, **translation_params)
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            logger.info(f"✓ Translation successful {attempt_name}: {len(text_to_translate.split())} words")
+            return result
+
+        except Exception as e:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            logger.warning(f"Translation attempt failed {attempt_name}: {e}")
+            return None
+
+    # Strategy 1: Try with full text first (if not extremely long)
+    words = text.split()
+    if len(words) <= max_input_tokens:
+        logger.info(f"Attempting translation with full text ({len(words)} words)")
+        result = _attempt_translation(text, "(full text)")
+        if result is not None:
+            return result
+
+    # Strategy 2: Smart truncation to sentence boundaries
+    if len(words) > max_input_tokens:
+        logger.info(f"Text too long ({len(words)} words), attempting smart truncation to {max_input_tokens} words")
+
+        # Try to truncate at sentence boundaries
+        sentences = text.split('. ')
+        truncated_sentences = []
+        word_count = 0
+
+        for sentence in sentences:
+            sentence_words = sentence.split()
+            if word_count + len(sentence_words) <= max_input_tokens:
+                truncated_sentences.append(sentence)
+                word_count += len(sentence_words)
+            else:
+                break
+
+        if truncated_sentences:
+            smart_truncated = '. '.join(truncated_sentences)
+            if not smart_truncated.endswith('.'):
+                smart_truncated += '.'
+
+            logger.info(f"Smart truncation: {len(words)} -> {len(smart_truncated.split())} words")
+            result = _attempt_translation(smart_truncated, "(smart truncated)")
+            if result is not None:
+                return result
+
+    # Strategy 3: Hard truncation as fallback
+    logger.warning(f"Falling back to hard truncation at {max_input_tokens} words")
+    hard_truncated = " ".join(words[:max_input_tokens])
+    result = _attempt_translation(hard_truncated, "(hard truncated)")
+    if result is not None:
+        return result
+
+    # Strategy 4: Ultra-conservative fallback
+    logger.warning("Trying ultra-conservative approach with 200 words")
+    ultra_conservative = " ".join(words[:200])
+    result = _attempt_translation(ultra_conservative, "(ultra-conservative)")
+    if result is not None:
+        return result
+
+    # Strategy 5: Last resort with minimal parameters
     try:
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        # Truncate text if too long
-        max_text_length = 400
-        if len(text) > max_text_length:
-            text = text[:max_text_length]
-            logger.warning(f"Text truncated to {max_text_length} characters for translation")
-
-        # Determine if this is a Seamless M4T model
-        is_seamless = model_name and "seamless" in model_name.lower()
-
-        # Language code mapping for Seamless M4T
-        seamless_lang_mapping = {
-            "en": "eng", "es": "spa", "fr": "fra", "de": "deu", "it": "ita",
-            "pt": "por", "ru": "rus", "zh": "cmn", "ja": "jpn", "ko": "kor",
-            "ar": "arb", "hi": "hin", "tr": "tur", "pl": "pol", "nl": "nld",
-            "he": "heb", "sv": "swe", "da": "dan", "no": "nor", "fi": "fin"
-        }
-
-        # Standard language mapping for other models
-        standard_lang_mapping = {
-            "en": "en", "es": "es", "fr": "fr", "de": "de", "it": "it",
-            "pt": "pt", "ru": "ru", "zh": "zh", "ja": "ja", "ko": "ko",
-            "ar": "ar", "hi": "hi", "tr": "tr", "pl": "pl", "nl": "nl",
-            "he": "he", "sv": "sv", "da": "da", "no": "no", "fi": "fi"
-        }
-
-        # Choose appropriate language mapping
-        lang_mapping = seamless_lang_mapping if is_seamless else standard_lang_mapping
-
-        # Map target language
-        mapped_target = lang_mapping.get(target_lang[:2].lower(), "eng" if is_seamless else "en")
+        logger.warning("Last resort: minimal parameters with 100 words")
+        minimal_text = " ".join(words[:100])
 
         if is_seamless:
-            # Seamless M4T requires both src_lang and tgt_lang
-            if source_lang:
-                mapped_source = lang_mapping.get(source_lang[:2].lower(), "eng")
-            else:
-                # Default to English if no source language detected
-                mapped_source = "eng"
-
-            # Use minimal parameters for Seamless M4T to avoid model_kwargs issues
+            fallback_source = seamless_lang_mapping.get(source_lang[:2].lower() if source_lang else "en", "eng")
+            fallback_target = seamless_lang_mapping.get(target_lang[:2].lower(), "eng")
             result = translator(
-                text,
-                src_lang=mapped_source,
-                tgt_lang=mapped_target
+                minimal_text,
+                src_lang=fallback_source,
+                tgt_lang=fallback_target
             )
         else:
-            # For other models, use standard translation parameters
-            translation_params = {
-                "max_length": 512,
-                "do_sample": False,
-                "num_beams": 1
-            }
-            if source_lang:
-                mapped_source = lang_mapping.get(source_lang[:2].lower(), source_lang)
-                # For Helsinki models, use standard format
-                if model_name and "helsinki" in model_name.lower():
-                    result = translator(text, **translation_params)
-                else:
-                    result = translator(
-                        text,
-                        src_lang=mapped_source,
-                        tgt_lang=mapped_target,
-                        **translation_params
-                    )
-            else:
-                result = translator(text, **translation_params)
+            result = translator(minimal_text)
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         return result
-    except Exception as e:
-        logger.error("❌ Translation error: %s", e)
+
+    except Exception as final_e:
+        logger.error("❌ All translation strategies failed: %s", final_e)
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-
-        # Try with minimal parameters as fallback
-        try:
-            logger.warning("Retrying translation with minimal parameters")
-            if is_seamless:
-                # For Seamless M4T, use only required parameters
-                fallback_source = seamless_lang_mapping.get(source_lang[:2].lower() if source_lang else "en", "eng")
-                fallback_target = seamless_lang_mapping.get(target_lang[:2].lower(), "eng")
-                result = translator(
-                    text,
-                    src_lang=fallback_source,
-                    tgt_lang=fallback_target
-                )
-            else:
-                # For other models, try without source language specification
-                result = translator(text, max_length=400)
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            return result
-        except Exception as fallback_e:
-            logger.error("❌ Fallback translation also failed: %s", fallback_e)
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            return None
+        return None
 
 
 def _embed_sync(embedder, texts: List[str], batch_size: int, normalize: bool):
