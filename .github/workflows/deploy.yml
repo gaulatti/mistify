@@ -74,9 +74,9 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
-            #!/bin/bash
+            bash -c '
             set -e
-
+            
             docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.DEPLOYMENT_TOKEN }}
             docker pull ghcr.io/${{ github.repository }}:latest
 
@@ -99,3 +99,4 @@ jobs:
               --log-opt awslogs-group=${{ vars.LOGS_GROUP }} \
               --log-opt awslogs-stream="$LOG_STREAM_UUID" \
               ghcr.io/${{ github.repository }}:latest
+            '
