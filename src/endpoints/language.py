@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Request
 from src.models import LanguageDetectionRequest, LanguageDetectionResponse
 
 router = APIRouter()
-logger = logging.getLogger("unified-text-analysis")
+logger = logging.getLogger("mistify")
 
 
 @router.post("/detect", response_model=LanguageDetectionResponse)

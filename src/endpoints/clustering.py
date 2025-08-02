@@ -6,7 +6,7 @@ from src.models import ClusteringRequest, ClusteringResponse, ClusterGroup
 from src.helpers.async_wrappers import _cluster_sync
 
 router = APIRouter()
-logger = logging.getLogger("unified-text-analysis")
+logger = logging.getLogger("mistify")
 
 
 @router.post("/cluster", response_model=ClusteringResponse)

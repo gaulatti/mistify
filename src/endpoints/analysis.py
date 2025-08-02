@@ -10,7 +10,7 @@ from .translation import translate_text
 from .classification import classify_content
 
 router = APIRouter()
-logger = logging.getLogger("unified-text-analysis")
+logger = logging.getLogger("mistify")
 
 
 @router.post("/analyze", response_model=UnifiedAnalysisResponse)

@@ -6,7 +6,7 @@ from src.models import EmbeddingItem
 from src.helpers.async_wrappers import _embed_sync
 
 router = APIRouter()
-logger = logging.getLogger("unified-text-analysis")
+logger = logging.getLogger("mistify")
 
 
 @router.post("/embed")

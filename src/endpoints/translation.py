@@ -5,7 +5,7 @@ from src.models import TranslationRequest, TranslationResponse
 from src.helpers.async_wrappers import _translate_sync
 
 router = APIRouter()
-logger = logging.getLogger("unified-text-analysis")
+logger = logging.getLogger("mistify")
 
 
 @router.post("/translate", response_model=TranslationResponse)
