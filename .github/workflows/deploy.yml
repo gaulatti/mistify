@@ -3,14 +3,36 @@ name: Deploy
 on:
   push:
     branches: [ main ]
-    paths-ignore:
-      - 'Dockerfile.base'
-      - 'requirements.txt'
   workflow_dispatch:
 
 jobs:
+  check-base-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      base-changed: ${{ steps.check.outputs.base-changed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if base files changed
+        id: check
+        run: |
+          # Check if Dockerfile.base or requirements.txt changed in this push
+          BASE_CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^(Dockerfile\.base|requirements\.txt)$' || echo "")
+          if [ -n "$BASE_CHANGED" ]; then
+            echo "base-changed=true" >> $GITHUB_OUTPUT
+            echo "Base files changed: $BASE_CHANGED"
+          else
+            echo "base-changed=false" >> $GITHUB_OUTPUT
+            echo "No base files changed"
+          fi
+
   build-and-push:
     runs-on: ubuntu-latest
+    needs: check-base-changes
+    if: needs.check-base-changes.outputs.base-changed == 'false'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -40,7 +62,8 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: [check-base-changes, build-and-push]
+    if: needs.check-base-changes.outputs.base-changed == 'false'
     steps:
       - name: Deploy to on-premises host
         uses: appleboy/ssh-action@v1.2.0
