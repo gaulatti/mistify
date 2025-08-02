@@ -87,12 +87,14 @@ app_state.translation_lock = asyncio.Lock()
 app_state.clustering_lock = asyncio.Lock()
 app_state.thread_pool = ThreadPoolExecutor(max_workers=app_state.config["POOL_WORKERS"])
 
+
 # ---- Middleware to pass state --------------------------------------------------
 @app.middleware("http")
 async def add_state_to_request(request: Request, call_next):
     request.state.app_state = app_state
     response = await call_next(request)
     return response
+
 
 # ---- API Routers ---------------------------------------------------------------
 app.include_router(language.router)
@@ -101,6 +103,7 @@ app.include_router(translation.router)
 app.include_router(embedding.router)
 app.include_router(clustering.router)
 app.include_router(analysis.router)
+
 
 # ---- System Endpoints ----------------------------------------------------------
 @app.get("/health")
@@ -118,10 +121,11 @@ def health():
         },
         "system": {
             "threads": process.num_threads(),
-            "memory_mb": round(process.memory_info().rss / 2**20, 1),
+            "memory_mb": round(process.memory_info().rss / 2 ** 20, 1),
             "device": "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"),
         }
     }
+
 
 @app.get("/")
 def root():
@@ -141,6 +145,8 @@ def root():
         }
     }
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

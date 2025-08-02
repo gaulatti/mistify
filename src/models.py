@@ -3,27 +3,33 @@
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 
+
 class LanguageDetectionRequest(BaseModel):
     text: str
     k: int = 1
+
 
 class LanguageDetectionResponse(BaseModel):
     languages: List[str]
     probabilities: List[float]
 
+
 class ClassificationRequest(BaseModel):
     text: str
     labels: Optional[List[str]] = None
+
 
 class ClassificationResponse(BaseModel):
     label: str
     score: float
     full_result: dict
 
+
 class TranslationRequest(BaseModel):
     text: str
     source_language: Optional[str] = None
     target_language: str = "eng"
+
 
 class TranslationResponse(BaseModel):
     original_text: str
@@ -31,6 +37,7 @@ class TranslationResponse(BaseModel):
     source_language: Optional[str] = None
     target_language: str
     confidence_score: Optional[float] = None
+
 
 class UnifiedAnalysisRequest(BaseModel):
     text: str
@@ -40,16 +47,20 @@ class UnifiedAnalysisRequest(BaseModel):
     language_count: int = 1
     classification_labels: Optional[List[str]] = None
 
+
 class UnifiedAnalysisResponse(BaseModel):
     text: str
     language_detection: Optional[LanguageDetectionResponse] = None
     content_classification: Optional[ClassificationResponse] = None
     translation: Optional[TranslationResponse] = None
 
+
 class EmbeddingItem(BaseModel):
     content: str
+
     class Config:
         extra = "allow"
+
 
 class ClusteringRequest(BaseModel):
     texts: List[str]
@@ -60,6 +71,7 @@ class ClusteringRequest(BaseModel):
     topic_labels: Optional[List[str]] = ["economy", "politics", "sports", "conflict", "misc"]
     debug: Optional[bool] = False
 
+
 class ClusterGroup(BaseModel):
     group_id: int
     texts: List[str]
@@ -68,6 +80,7 @@ class ClusterGroup(BaseModel):
     primary_topic: Optional[str] = None
     primary_entities: Optional[List[str]] = None
     avg_similarity: Optional[float] = None
+
 
 class ClusteringResponse(BaseModel):
     total_texts: int

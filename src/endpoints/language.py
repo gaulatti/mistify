@@ -5,6 +5,7 @@ from src.models import LanguageDetectionRequest, LanguageDetectionResponse
 router = APIRouter()
 logger = logging.getLogger("unified-text-analysis")
 
+
 @router.post("/detect", response_model=LanguageDetectionResponse)
 async def detect_language(req: LanguageDetectionRequest, http_request: Request):
     """Detect the language(s) of the input text using FastText"""

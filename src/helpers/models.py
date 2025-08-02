@@ -11,6 +11,7 @@ from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
+
 def download_fasttext_model(model_path: str, model_url: str) -> bool:
     """Download FastText language detection model if not present"""
     try:
@@ -22,6 +23,7 @@ def download_fasttext_model(model_path: str, model_url: str) -> bool:
     except Exception as e:
         logger.error("❌ Failed to download FastText model: %s", e)
         return False
+
 
 def initialize_models(config):
     """Initialize all models"""

@@ -12,6 +12,7 @@ from .classification import classify_content
 router = APIRouter()
 logger = logging.getLogger("unified-text-analysis")
 
+
 @router.post("/analyze", response_model=UnifiedAnalysisResponse)
 async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
     """Perform language detection, content classification, and translation on the input text"""
