@@ -64,13 +64,6 @@ ENV TRANSFORMERS_OFFLINE=1
 3. Translation (from HF cache, with fallback)
 4. Clustering models (Sentence Transformers + SpaCy)
 
-### 5. Updated Setup Script (`setup.sh`)
-
-#### Added:
-- Explicit model pre-download step
-- Progress information for users
-- Offline operation notice
-
 ## Benefits
 
 ### 🚀 **Zero Startup Time**
@@ -144,7 +137,6 @@ docker build -t unified-text-analysis .
 ### Development:
 - Models download on first use if not cached
 - Graceful fallback for partial cache
-- `setup.sh` can pre-download for offline dev
 
 ### Production (Docker):
 - All models guaranteed cached

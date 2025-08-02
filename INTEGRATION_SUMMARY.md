@@ -46,9 +46,6 @@
 
 #### New Files
 - `CLUSTERING.md`: Comprehensive clustering documentation
-- `clustering_examples.py`: Example usage scripts
-- `test_clustering.py`: Basic functionality test
-- `setup.sh`: Automated setup script
 
 #### Updated Files
 - `README.md`: Added clustering features and setup instructions
@@ -128,8 +125,8 @@ response = requests.post("http://localhost:8000/cluster", json={
 
 ## Next Steps
 
-1. Run `./setup.sh` to install dependencies
-2. Test with `python test_clustering.py`
-3. Explore examples with `python clustering_examples.py`
+1. Install dependencies with `pip install -r requirements.txt`
+2. Download the SpaCy model with `python -m spacy download en_core_web_sm`
+3. Start the server with `python server.py` or `uvicorn server:app`
 4. Read `CLUSTERING.md` for detailed documentation
 5. Customize parameters for your use case
