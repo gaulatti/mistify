@@ -1,5 +1,8 @@
-# server.py — Unified Text Analysis API (Language Detection + Content Classification)
-# ==================================================================================
+# server.py — Unified Text Analysis API
+# =====================================
+# Language detection, content classification, translation, text clustering,
+# and batch sentence embeddings generation in one service.
+
 import os
 
 # ---- HARD CAP hidden thread pools for PyTorch compatibility -------------------
@@ -24,10 +27,12 @@ import warnings
 import re
 import itertools
 import pathlib
+import time
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List, Set, Dict
+from typing import Optional, List, Set, Dict, Any
+
 import fasttext
 import networkx as nx
 import numpy as np
@@ -56,8 +61,8 @@ torch.set_num_interop_threads(1)
 # ---- FastAPI App ---------------------------------------------------------------
 app = FastAPI(
     title="Unified Text Analysis API",
-    description="Language detection, content classification, translation, and text clustering in one service",
-    version="1.2.0"
+    description="Language detection, content classification, translation, sentence embeddings, and entity-aware clustering",
+    version="1.3.0"
 )
 
 # ---- Configuration -------------------------------------------------------------
@@ -74,8 +79,8 @@ DEFAULT_CLASSIFICATION_LABELS = [
 ]
 MIN_SCORE = float(os.getenv("MIN_SCORE", "0.30"))
 MIN_MARGIN = float(os.getenv("MIN_MARGIN", "0.10"))
-POOL_WORKERS = 4
-TIMEOUT = 10  # seconds
+POOL_WORKERS = int(os.getenv("POOL_WORKERS", "4"))
+TIMEOUT = int(os.getenv("TIMEOUT", "10"))  # seconds
 
 # Clustering Configuration
 CLUSTERING_SIM_ENTITY = 0.40  # Similarity threshold for entities
@@ -88,7 +93,7 @@ CLUSTERING_TOK_REMOVE = {"the", "a", "an", "of"}
 CLUSTERING_PUN_RE = re.compile(r"[^\w\s]")
 
 # Persistent cache for HuggingFace models - use HF_HOME environment variable if set
-HF_CACHE = pathlib.Path(os.environ.get("HF_HOME", pathlib.Path.home() / ".cache" / "huggingface"))
+HF_CACHE = pathlib.Path(os.environ.get("HF_HOME", pathlib.Path.home() / ".hf_models"))
 HF_CACHE.mkdir(parents=True, exist_ok=True)
 
 # ---- Global Variables ----------------------------------------------------------
@@ -287,6 +292,20 @@ class UnifiedAnalysisResponse(BaseModel):
     content_classification: Optional[ClassificationResponse] = None
     translation: Optional[TranslationResponse] = None
 
+# Embeddings I/O
+class EmbeddingsRequest(BaseModel):
+    items: List[Dict[str, Any]]
+    text_field: str = "content"
+    batch_size: int = 64
+    normalize: bool = True
+
+class EmbeddingsResponse(BaseModel):
+    items: List[Dict[str, Any]]
+    model: str
+    dim: int
+    device: str
+
+# Clustering I/O
 class ClusteringRequest(BaseModel):
     texts: List[str]
     similarity_entity: Optional[float] = CLUSTERING_SIM_ENTITY
@@ -636,6 +655,20 @@ def _translate_sync(text: str, source_lang: Optional[str] = None, target_lang: s
             logger.error("❌ Fallback translation also failed: %s", fallback_e)
             return None
 
+# ---- Embeddings helper ---------------------------------------------------------
+def _embed_sync(texts: List[str], batch_size: int, normalize: bool) -> np.ndarray:
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    vecs = embedder.encode(
+        texts,
+        batch_size=batch_size,
+        normalize_embeddings=normalize,
+        convert_to_numpy=True,
+    ).astype(np.float32)
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return vecs
+
 # ---- API Endpoints -------------------------------------------------------------
 
 @app.post("/detect", response_model=LanguageDetectionResponse)
@@ -805,6 +838,57 @@ async def translate_text(request: TranslationRequest):
     except Exception as e:
         logger.error("❌ Failed to parse translation result: %s", e)
         raise HTTPException(status_code=500, detail="Failed to parse translation result")
+
+@app.post("/embed", response_model=EmbeddingsResponse)
+async def embed_items(request: EmbeddingsRequest):
+    """
+    Compute sentence embeddings for an array of items.
+    For each item, uses item[request.text_field] (default: 'content') as the text.
+    Returns the same items with a new key "embeddings" (list[float], len=384).
+    """
+    if embedder is None:
+        raise HTTPException(status_code=503, detail="Embeddings model not available")
+
+    items = request.items or []
+    if not isinstance(items, list):
+        raise HTTPException(status_code=400, detail="`items` must be a list")
+
+    texts = []
+    for idx, it in enumerate(items):
+        if not isinstance(it, dict):
+            raise HTTPException(status_code=400, detail=f"Item at index {idx} is not an object")
+        text = str(it.get(request.text_field, "") or "")
+        texts.append(text)
+
+    if not texts:
+        return EmbeddingsResponse(
+            items=items,
+            model="sentence-transformers/all-MiniLM-L6-v2",
+            dim=384,
+            device=("cuda" if torch.cuda.is_available()
+                    else "mps" if torch.backends.mps.is_available()
+                    else "cpu"),
+        )
+
+    try:
+        vecs = await asyncio.get_running_loop().run_in_executor(
+            thread_pool, _embed_sync, texts, request.batch_size, request.normalize
+        )
+    except Exception as e:
+        logger.error("❌ Embedding failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Embedding failed: {str(e)}")
+
+    for it, v in zip(items, vecs):
+        it["embeddings"] = v.tolist()
+
+    return EmbeddingsResponse(
+        items=items,
+        model="sentence-transformers/all-MiniLM-L6-v2",
+        dim=int(vecs.shape[1]) if vecs.ndim == 2 else 384,
+        device=("cuda" if torch.cuda.is_available()
+                else "mps" if torch.backends.mps.is_available()
+                else "cpu"),
+    )
 
 @app.post("/cluster", response_model=ClusteringResponse)
 async def cluster_texts(request: ClusteringRequest):
@@ -982,6 +1066,7 @@ def root():
             "language_detection": "/detect",
             "content_classification": "/classify",
             "translation": "/translate",
+            "embeddings": "/embed",
             "text_clustering": "/cluster",
             "unified_analysis": "/analyze",
             "health": "/health"
