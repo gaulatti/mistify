@@ -3,6 +3,8 @@ name: Deploy
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'infrastructure/**'
   workflow_dispatch:
 
 jobs:
@@ -79,6 +81,9 @@ jobs:
             docker stop mistify || true
             docker rm mistify || true
 
+            # Generate a UUID for awslogs-stream
+            LOG_STREAM_UUID=$(uuidgen)
+
             # Run the new container on port 8000 with GPU support
             docker run -d --name mistify \
               -p 8000:8000 \
@@ -86,4 +91,8 @@ jobs:
               --restart=always \
               -v mistify-cache:/home/appuser/.cache \
               -v mistify-models:/home/appuser/.hf_models \
+              --log-driver=awslogs \
+              --log-opt awslogs-region=${{ vars.AWS_REGION }} \
+              --log-opt awslogs-group=${{ vars.LOGS_GROUP }} \
+              --log-opt awslogs-stream="$LOG_STREAM_UUID" \
               ghcr.io/${{ github.repository }}:latest
