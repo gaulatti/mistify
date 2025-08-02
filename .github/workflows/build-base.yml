@@ -6,8 +6,6 @@ on:
     paths:
       - 'Dockerfile.base'
       - 'requirements.txt'
-    paths-ignore:
-      - 'infrastructure/**'
   workflow_dispatch:
 
 jobs:
