@@ -30,10 +30,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.DEPLOYMENT_TOKEN }}
 
-      - name: Pull latest base image
-        run: |
-          docker pull ghcr.io/${{ github.repository }}-base:latest
-
       - name: Build Docker image
         run: |
           docker build -t ghcr.io/${{ github.repository }}:latest .
