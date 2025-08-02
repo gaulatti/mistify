@@ -7,7 +7,7 @@
 FROM ghcr.io/gaulatti/mistify-base:latest
 
 # Copy application source code
-COPY --chown=appuser:appuser src .
+COPY --chown=appuser:appuser src ./src
 
 # Switch to non-root user
 USER appuser
