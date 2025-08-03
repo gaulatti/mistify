@@ -62,6 +62,58 @@ class EmbeddingItem(BaseModel):
         extra = "allow"
 
 
+class SimilarPost(BaseModel):
+    postId: str
+    score: float
+    content: str
+    embeddings: List[float]
+
+
+class CategoryRelation(BaseModel):
+    id: int
+    slug: str
+    name: str
+    Tagging: Dict
+
+
+class PostData(BaseModel):
+    id: int
+    uuid: str
+    source_id: str
+    source: str
+    uri: str
+    content: str
+    createdAt: str
+    relevance: int
+    lang: Optional[str] = None
+    author_id: Optional[str] = None
+    author_name: str
+    author_handle: str
+    author_avatar: str
+    media: List[str]
+    linkPreview: str
+    hash: str
+    original: str
+    author: str
+    posted_at: str
+    received_at: str
+    embedding: Optional[List[float]] = None
+    categories_relation: List[CategoryRelation]
+    embeddings: List[float]
+    similarPosts: List[SimilarPost]
+
+
+class PostClusteringRequest(BaseModel):
+    """Request model for clustering a single post"""
+    post: PostData
+    similarity_entity: Optional[float] = 0.40
+    similarity_global: Optional[float] = 0.60
+    big_community_size: Optional[int] = 30
+    avg_similarity_min: Optional[float] = 0.50
+    topic_labels: Optional[List[str]] = ["economy", "politics", "sports", "conflict", "misc"]
+    debug: Optional[bool] = False
+
+
 class ClusteringRequest(BaseModel):
     texts: List[str]
     similarity_entity: Optional[float] = 0.40
@@ -82,9 +134,34 @@ class ClusterGroup(BaseModel):
     avg_similarity: Optional[float] = None
 
 
+class ClusteredPost(BaseModel):
+    id: Optional[int] = None  # For the main post
+    uuid: Optional[str] = None  # For the main post  
+    postId: Optional[str] = None  # For similar posts
+    hash: Optional[str] = None
+    content: str
+
+
+class PostClusterGroup(BaseModel):
+    group_id: int
+    posts: List[ClusteredPost]  # Array of posts in the cluster (main + similar posts)
+    size: int
+    primary_topic: Optional[str] = None
+    primary_entities: Optional[List[str]] = None
+    avg_similarity: Optional[float] = None
+
+
 class ClusteringResponse(BaseModel):
     total_texts: int
     total_groups: int
     groups: List[ClusterGroup]
+    processing_time: Optional[float] = None
+    debug_info: Optional[Dict] = None
+
+
+class PostClusteringResponse(BaseModel):
+    total_posts: int = 1  # Always 1 for single post
+    total_groups: int = 1  # Always 1 for single post
+    group: PostClusterGroup  # Single group instead of list
     processing_time: Optional[float] = None
     debug_info: Optional[Dict] = None
