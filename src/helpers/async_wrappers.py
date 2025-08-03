@@ -31,8 +31,14 @@ def _cluster_sync(texts: List[str], nlp, embedder, classifier, config: Dict = No
                                                                 config=config)
         logger.info(f"🔧 Graph built with {len(G.nodes())} nodes and {len(G.edges())} edges")
         
-        logger.info("🔧 Running Louvain community detection...")
-        comms = louvain_communities(G, weight=None, resolution=1.0)
+        # Check if graph is empty (no connections between texts)
+        if len(G.nodes()) == 0 or len(G.edges()) == 0:
+            logger.warning("⚠️ Empty graph detected - no connections between texts, creating individual clusters")
+            # Create individual clusters for each text
+            comms = [frozenset([i]) for i in range(len(texts))]
+        else:
+            logger.info("🔧 Running Louvain community detection...")
+            comms = louvain_communities(G, weight=None, resolution=1.0)
         logger.info(f"🔧 Found {len(comms)} initial communities")
         
         logger.info("🔧 Splitting large communities...")
