@@ -62,13 +62,6 @@ class EmbeddingItem(BaseModel):
         extra = "allow"
 
 
-class SimilarPost(BaseModel):
-    postId: str
-    score: float
-    content: str
-    embeddings: List[float]
-
-
 class CategoryRelation(BaseModel):
     id: int
     slug: str
@@ -100,7 +93,7 @@ class PostData(BaseModel):
     embedding: Optional[List[float]] = None
     categories_relation: List[CategoryRelation]
     embeddings: List[float]
-    similarPosts: List[SimilarPost]
+    similarPosts: List['PostData']  # Array of PostData objects, not SimilarPost
 
 
 class PostClusteringRequest(BaseModel):
@@ -135,10 +128,9 @@ class ClusterGroup(BaseModel):
 
 
 class ClusteredPost(BaseModel):
-    id: Optional[int] = None  # For the main post
-    uuid: Optional[str] = None  # For the main post  
-    postId: Optional[str] = None  # For similar posts
-    hash: Optional[str] = None
+    id: int
+    uuid: str
+    hash: str
     content: str
 
 
