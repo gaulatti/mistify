@@ -39,7 +39,6 @@ async def cluster_texts(req: PostData, http_request: Request):
                 group_id=0,
                 posts=[ClusteredPost(
                     id=req.id,
-                    uuid=req.uuid,
                     hash=req.hash,
                     content=req.content
                 )],
@@ -101,7 +100,6 @@ async def cluster_texts(req: PostData, http_request: Request):
                 group_id=0,
                 posts=[ClusteredPost(
                     id=req.id,
-                    uuid=req.uuid,
                     hash=req.hash,
                     content=req.content
                 )],
@@ -120,7 +118,6 @@ async def cluster_texts(req: PostData, http_request: Request):
         post = all_posts[index]
         clustered_posts.append(ClusteredPost(
             id=post.id,
-            uuid=post.uuid,
             hash=post.hash,
             content=post.content
         ))
