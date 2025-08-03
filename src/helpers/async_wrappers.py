@@ -15,9 +15,7 @@ async def run_in_executor(loop, executor, func, *args):
 
 def _cluster_sync(texts: List[str], nlp, embedder, classifier, config: Dict = None, debug: bool = False):
     """Synchronous clustering function for thread execution"""
-    logger.error("🚨🚨🚨 CLUSTERING FUNCTION CALLED - THIS SHOULD NOT HAPPEN FOR EMBEDDING ENDPOINT! 🚨🚨🚨")
-    logger.error(f"🚨 _cluster_sync called with {len(texts)} texts - debug={debug}")
-    logger.error("🚨 If you see this message during /embed request, there's a bug in the function call!")
+    logger.info(f"� Starting clustering with {len(texts)} texts")
     from .clustering import build_clustering_graph, split_large_communities
     from src.models import ClusterGroup
     import itertools
@@ -28,43 +26,90 @@ def _cluster_sync(texts: List[str], nlp, embedder, classifier, config: Dict = No
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+        logger.info("🔧 Building clustering graph...")
         G, sims, why, topics, entities = build_clustering_graph(texts, nlp, embedder, classifier, show_bar=debug,
                                                                 config=config)
+        logger.info(f"🔧 Graph built with {len(G.nodes())} nodes and {len(G.edges())} edges")
+        
+        logger.info("🔧 Running Louvain community detection...")
         comms = louvain_communities(G, weight=None, resolution=1.0)
+        logger.info(f"🔧 Found {len(comms)} initial communities")
+        
+        logger.info("🔧 Splitting large communities...")
         groups = []
-        for c in comms:
-            groups.extend(split_large_communities(list(c), sims, config))
+        for i, c in enumerate(comms):
+            logger.debug(f"🔧 Processing community {i} with {len(c)} members")
+            try:
+                split_groups = split_large_communities(list(c), sims, config)
+                groups.extend(split_groups)
+                logger.debug(f"🔧 Community {i} split into {len(split_groups)} groups")
+            except Exception as split_e:
+                logger.error(f"❌ Error splitting community {i}: {split_e}")
+                # Add the original community as-is if splitting fails
+                groups.append(list(c))
+        
         groups.sort(key=lambda g: (-len(g), min(g)))
+        logger.info(f"🔧 Final result: {len(groups)} groups after splitting")
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+        logger.info("🔧 Creating cluster groups...")
         cluster_groups = []
         for gid, idx in enumerate(groups):
-            group_texts = [texts[i] for i in sorted(idx)]
-            group_topics = [topics[i] for i in idx]
-            primary_topic = max(set(group_topics), key=group_topics.count) if group_topics else None
-            group_entities = set()
-            for i in idx:
-                group_entities.update(entities[i])
-            group_entities.discard("__NOENT__")
-            primary_entities = list(group_entities)[:5]
+            try:
+                logger.debug(f"🔧 Processing group {gid} with indices: {idx}")
+                
+                # Validate indices
+                if not idx:
+                    logger.warning(f"⚠️ Empty group {gid}, skipping")
+                    continue
+                    
+                # Check if all indices are valid
+                max_idx = max(idx)
+                if max_idx >= len(texts):
+                    logger.error(f"❌ Invalid index {max_idx} in group {gid}, max allowed: {len(texts)-1}")
+                    continue
+                
+                group_texts = [texts[i] for i in sorted(idx)]
+                group_topics = [topics[i] for i in idx]
+                primary_topic = max(set(group_topics), key=group_topics.count) if group_topics else None
+                group_entities = set()
+                for i in idx:
+                    group_entities.update(entities[i])
+                group_entities.discard("__NOENT__")
+                primary_entities = list(group_entities)[:5]
 
-            if len(idx) > 1:
-                group_sims = [sims[i, j] for i, j in itertools.combinations(idx, 2)]
-                avg_similarity = float(np.mean(group_sims)) if group_sims else 0.0
-            else:
-                avg_similarity = 1.0
+                # Safe similarity calculation
+                if len(idx) > 1:
+                    try:
+                        group_sims = [sims[i, j] for i, j in itertools.combinations(idx, 2)]
+                        if group_sims:
+                            avg_similarity = float(np.mean(group_sims))
+                        else:
+                            logger.warning(f"⚠️ No similarities found for group {gid}")
+                            avg_similarity = 0.0
+                    except Exception as sim_e:
+                        logger.error(f"❌ Error calculating similarities for group {gid}: {sim_e}")
+                        avg_similarity = 0.0
+                else:
+                    avg_similarity = 1.0
 
-            cluster_groups.append(ClusterGroup(
-                group_id=gid,
-                texts=group_texts,
-                indices=sorted(idx),
-                size=len(idx),
-                primary_topic=primary_topic,
-                primary_entities=primary_entities,
-                avg_similarity=avg_similarity
-            ))
+                cluster_groups.append(ClusterGroup(
+                    group_id=gid,
+                    texts=group_texts,
+                    indices=sorted(idx),
+                    size=len(idx),
+                    primary_topic=primary_topic,
+                    primary_entities=primary_entities,
+                    avg_similarity=avg_similarity
+                ))
+                logger.debug(f"✓ Group {gid} created successfully")
+                
+            except Exception as group_e:
+                logger.error(f"❌ Error creating group {gid}: {group_e}")
+                # Continue with other groups
+                continue
 
         result = {
             "groups": cluster_groups,
