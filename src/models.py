@@ -71,29 +71,31 @@ class CategoryRelation(BaseModel):
 
 class PostData(BaseModel):
     id: int
-    uuid: str
-    source_id: str
-    source: str
-    uri: str
+    score: Optional[float] = None  # Only present in similar posts
     content: str
+    source: str
     createdAt: str
-    relevance: int
+    hash: str
+    embeddings: List[float]
+    # Main post specific fields (optional for similar posts)
+    uuid: Optional[str] = None
+    source_id: Optional[str] = None
+    uri: Optional[str] = None
+    relevance: Optional[int] = None
     lang: Optional[str] = None
     author_id: Optional[str] = None
-    author_name: str
-    author_handle: str
-    author_avatar: str
-    media: List[str]
-    linkPreview: str
-    hash: str
-    original: str
-    author: str
-    posted_at: str
-    received_at: str
+    author_name: Optional[str] = None
+    author_handle: Optional[str] = None
+    author_avatar: Optional[str] = None
+    media: Optional[List[str]] = None
+    linkPreview: Optional[str] = None
+    original: Optional[str] = None
+    author: Optional[str] = None
+    posted_at: Optional[str] = None
+    received_at: Optional[str] = None
     embedding: Optional[List[float]] = None
-    categories_relation: List[CategoryRelation]
-    embeddings: List[float]
-    similarPosts: List['PostData']  # Array of PostData objects, not SimilarPost
+    categories_relation: Optional[List[CategoryRelation]] = None
+    similarPosts: Optional[List['PostData']] = None  # Only present in main post
 
 
 class PostClusteringRequest(BaseModel):
@@ -129,7 +131,6 @@ class ClusterGroup(BaseModel):
 
 class ClusteredPost(BaseModel):
     id: int
-    uuid: str
     hash: str
     content: str
 
