@@ -172,8 +172,18 @@ def split_large_communities(comm, sims, config: Dict = None, depth: int = 0):
 
     if len(comm) <= big_comm:
         return [comm]
+    
+    # Safety check: avoid division by zero for small communities
+    if len(comm) <= 1:
+        return [comm]
+    
     subM = sims[np.ix_(comm, comm)]
-    avg = (subM.sum() - len(comm)) / (len(comm) * (len(comm) - 1))
+    # Calculate average similarity, avoiding division by zero
+    denominator = len(comm) * (len(comm) - 1)
+    if denominator == 0:
+        return [comm]
+    
+    avg = (subM.sum() - len(comm)) / denominator
     if avg >= avg_sim_min or depth > 2:
         return [comm]
     tight = nx.Graph()
