@@ -112,27 +112,19 @@ async def cluster_texts(req: PostData, http_request: Request):
             ),
             processing_time=processing_time
         )
-    
+
     # Build the clustered posts array from the group indices
     clustered_posts = []
     for index in main_post_group.indices:
-        if index == 0:
-            # Main post
-            clustered_posts.append(ClusteredPost(
-                id=req.id,
-                uuid=req.uuid,
-                hash=req.hash,
-                content=req.content
-            ))
-        else:
-            # Similar post (index - 1 because main post is at index 0)
-            similar_post = req.similarPosts[index - 1]
-            clustered_posts.append(ClusteredPost(
-                postId=similar_post.postId,
-                hash=getattr(similar_post, 'hash', None),  # Hash might not be available in similar posts
-                content=similar_post.content
-            ))
-    
+        # Get the post from our all_posts array using the index
+        post = all_posts[index]
+        clustered_posts.append(ClusteredPost(
+            id=post.id,
+            uuid=post.uuid,
+            hash=post.hash,
+            content=post.content
+        ))
+
     # Create the response with the group containing the main post and clustered similar posts
     return PostClusteringResponse(
         total_posts=len(texts),
