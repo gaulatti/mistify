@@ -16,7 +16,7 @@ from tqdm import tqdm
 CLUSTERING_SIM_ENTITY = 0.40
 CLUSTERING_SIM_GLOBAL = 0.60
 CLUSTERING_BIG_COMM = 30
-CLUSTERING_AVG_SIM_MIN = 0.50
+CLUSTERING_AVG_SIM_MIN = 0.60
 CLUSTERING_TOPIC_LABELS = ["economy", "politics", "sports", "conflict", "misc"]
 CLUSTERING_ALIAS_THR = 0.20
 CLUSTERING_TOK_REMOVE = {"the", "a", "an", "of"}
