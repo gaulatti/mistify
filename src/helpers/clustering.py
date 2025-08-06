@@ -184,8 +184,12 @@ def split_large_communities(comm, sims, config: Dict = None, depth: int = 0):
         return [comm]
     
     avg = (subM.sum() - len(comm)) / denominator
-    if avg >= avg_sim_min or depth > 2:
+    # Only stop if similarity is high enough AND we've tried enough splits, OR if we can't split further
+    if avg >= avg_sim_min:
         return [comm]
+    elif depth > 5:
+        # If we've tried many splits but still low similarity, split into individual items
+        return [[item] for item in comm]
     tight = nx.Graph()
     tight.add_nodes_from(range(len(comm)))
     for a, b in itertools.combinations(range(len(comm)), 2):
