@@ -71,17 +71,16 @@ class CategoryRelation(BaseModel):
 
 class PostData(BaseModel):
     id: int
-    score: Optional[float] = None  # Only present in similar posts
+    score: Optional[float] = None
     content: str
     source: str
     createdAt: str
     hash: str
     embeddings: List[float]
-    # Main post specific fields (optional for similar posts)
-    uuid: Optional[str] = None
-    source_id: Optional[str] = None
-    uri: Optional[str] = None
-    relevance: Optional[int] = None
+    uuid: str
+    source_id: str
+    uri: str
+    relevance: int
     lang: Optional[str] = None
     author_id: Optional[str] = None
     author_name: Optional[str] = None
@@ -91,11 +90,11 @@ class PostData(BaseModel):
     linkPreview: Optional[str] = None
     original: Optional[str] = None
     author: Optional[str] = None
-    posted_at: Optional[str] = None
-    received_at: Optional[str] = None
+    posted_at: str
+    received_at: str
     embedding: Optional[List[float]] = None
     categories_relation: Optional[List[CategoryRelation]] = None
-    similarPosts: Optional[List['PostData']] = []  # Default to empty list instead of 
+    similarPosts: Optional[List['PostData']] = []
 
 
 class PostClusteringRequest(BaseModel):
