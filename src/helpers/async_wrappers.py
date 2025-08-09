@@ -218,7 +218,7 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                     text_to_translate,
                     src_lang=mapped_source,
                     tgt_lang="eng",
-                    max_length = max(100, min(1000, input_tokens * 3))
+                    max_length=max(100, min(1000, input_tokens * 3)),
                     do_sample=False,
                     num_beams=1
                 )
