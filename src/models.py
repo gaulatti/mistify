@@ -1,6 +1,6 @@
 # service/src/models.py
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
 
 
@@ -70,17 +70,24 @@ class CategoryRelation(BaseModel):
 
 
 class PostData(BaseModel):
+    # Required core fields for clustering & identification
     id: int
-    score: Optional[float] = None
     content: str
     source: str
     createdAt: str
     hash: str
-    embeddings: List[float]
     uuid: str
-    source_id: str
-    uri: str
-    relevance: int
+
+    # Fields that may be absent in nested similarPosts payloads
+    score: Optional[float] = None
+    embeddings: Optional[List[float]] = None  # Raw embedding may be omitted; service re-embeds content
+    source_id: Optional[str] = None
+    uri: Optional[str] = None
+    relevance: Optional[int] = None
+    posted_at: Optional[str] = None
+    received_at: Optional[str] = None
+
+    # Metadata (all optional)
     lang: Optional[str] = None
     author_id: Optional[str] = None
     author_name: Optional[str] = None
@@ -90,11 +97,11 @@ class PostData(BaseModel):
     linkPreview: Optional[str] = None
     original: Optional[str] = None
     author: Optional[str] = None
-    posted_at: str
-    received_at: str
     embedding: Optional[List[float]] = None
     categories_relation: Optional[List[CategoryRelation]] = None
-    similarPosts: Optional[List['PostData']] = []
+
+    # Nested similar posts (avoid mutable default list)
+    similarPosts: Optional[List['PostData']] = Field(default_factory=list)
 
 
 class PostClusteringRequest(BaseModel):
