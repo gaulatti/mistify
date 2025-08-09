@@ -21,14 +21,23 @@ async def cluster_texts(req: PostData, http_request: Request):
     if not app_state.embedder or not app_state.nlp:
         raise HTTPException(status_code=503, detail="Clustering models not available")
 
+    # Debug: Log the incoming request structure
+    logger.info(f"🔍 Clustering request - Post ID: {req.id}, Similar posts: {type(req.similarPosts)}")
+    
     # Prepare texts for clustering: main post + similar posts
     texts = [req.content]  # Main post first
     all_posts = [req]  # Keep reference to all posts for building response
     
-    # Add similar posts to the clustering candidates
-    for similar_post in req.similarPosts:
-        texts.append(similar_post.content)
-        all_posts.append(similar_post)
+    # Add similar posts to the clustering candidates (with null check)
+    if req.similarPosts is not None:
+        logger.info(f"🔍 Processing {len(req.similarPosts)} similar posts")
+        for similar_post in req.similarPosts:
+            texts.append(similar_post.content)
+            all_posts.append(similar_post)
+    else:
+        logger.warning(f"⚠️ No similar posts provided for post {req.id}")
+    
+    logger.info(f"🔍 Total texts for clustering: {len(texts)}")
     
     # If we only have the main post (no similar posts), return single cluster
     if len(texts) == 1:
