@@ -208,19 +208,17 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                 else:
                     mapped_source = "eng"
 
-                # For Seamless M4T, use max_new_tokens instead of max_length to avoid conflicts
-                # Calculate reasonable max_new_tokens based on input length
+                # For Seamless M4T pipeline, use generation parameters
                 input_tokens = len(text_to_translate.split())
 
-                logger.info(f"Text: {text_to_translate}, Seamless translation: {mapped_source} -> eng, max_length: {max_length}")
+                logger.info(f"Text: {text_to_translate}, Seamless translation: {mapped_source} -> eng, input_tokens: {input_tokens}")
 
+                # For Hugging Face pipeline, pass generation parameters correctly
                 result = translator(
                     text_to_translate,
                     src_lang=mapped_source,
                     tgt_lang="eng",
-                    max_length=max(100, min(1000, input_tokens * 3)),
-                    do_sample=False,
-                    num_beams=1
+                    **{"max_length": 1000, "do_sample": False, "num_beams": 1}
                 )
             else:
                 # For other models, use standard translation parameters
