@@ -3,12 +3,13 @@
 import itertools
 import logging
 import re
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Optional
 
 import networkx as nx
 import numpy as np
 from networkx.algorithms.community import louvain_communities
 from sentence_transformers import SentenceTransformer, util
+import torch
 from sklearn.cluster import AgglomerativeClustering
 from tqdm import tqdm
 
@@ -108,9 +109,12 @@ def get_primary_topics(
 
 
 def build_clustering_graph(
-        texts: List[str], nlp, embedder, classifier, show_bar: bool = False, config: Dict = None
+    texts: List[str], nlp, embedder, classifier, show_bar: bool = False, config: Dict = None
 ):
-    """Build similarity graph for clustering"""
+    """Build similarity graph for clustering.
+
+    Optionally reuses precomputed embeddings if provided via config['precomputed_embeddings'].
+    """
     if not nlp or not embedder:
         raise Exception("Clustering models not available")
 
@@ -131,7 +135,31 @@ def build_clustering_graph(
     entities = get_entities(docs, embedder)
     topics = get_primary_topics(texts, classifier, show_bar)
 
-    emb = embedder.encode(texts, batch_size=64, convert_to_tensor=True, normalize_embeddings=True)
+    pre_embs: Optional[List[List[float]]] = None
+    if config and isinstance(config, dict):
+        pre_embs = config.get("precomputed_embeddings")
+
+    if pre_embs is not None:
+        try:
+            emb_tensor = torch.tensor(pre_embs, dtype=torch.float32)
+            # Validate shape
+            if emb_tensor.shape[0] != len(texts):
+                logger.warning("Precomputed embeddings count (%d) doesn't match texts (%d); recomputing.", emb_tensor.shape[0], len(texts))
+                emb = embedder.encode(texts, batch_size=64, convert_to_tensor=True, normalize_embeddings=True)
+            else:
+                # Normalize if not already (approx check via norm variance)
+                norms = torch.norm(emb_tensor, dim=1)
+                avg_norm = float(torch.mean(norms)) if norms.numel() else 1.0
+                if abs(avg_norm - 1.0) > 0.05:  # heuristic threshold
+                    logger.info("Normalizing provided embeddings (avg norm %.3f)", avg_norm)
+                    emb_tensor = torch.nn.functional.normalize(emb_tensor, p=2, dim=1)
+                emb = emb_tensor
+                logger.info("Using %d precomputed embeddings (dim=%d)", emb.shape[0], emb.shape[1])
+        except Exception as e:
+            logger.warning("Failed to use precomputed embeddings (%s); falling back to encode", e)
+            emb = embedder.encode(texts, batch_size=64, convert_to_tensor=True, normalize_embeddings=True)
+    else:
+        emb = embedder.encode(texts, batch_size=64, convert_to_tensor=True, normalize_embeddings=True)
     sims = util.cos_sim(emb, emb).cpu().numpy()
 
     G, why = nx.Graph(), {}

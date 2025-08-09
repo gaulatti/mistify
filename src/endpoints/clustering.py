@@ -59,13 +59,27 @@ async def cluster_texts(req: PostData, http_request: Request):
             processing_time=0.0
         )
 
-    # Clustering configuration
+    # Clustering configuration (optionally reuse precomputed embeddings if present for all posts)
+    all_embeddings = []
+    can_use_pre = True
+    for p in all_posts:
+        if p.embeddings:
+            all_embeddings.append(p.embeddings)
+        else:
+            can_use_pre = False
+            break
     cluster_config = {
         "similarity_entity": 0.40,
         "similarity_global": 0.60,
         "big_community_size": 30,
-        "avg_similarity_min": 0.50
+        "avg_similarity_min": 0.50,
     }
+    if can_use_pre and all_embeddings:
+        cluster_config["precomputed_embeddings"] = all_embeddings
+        logger.info(f"Using precomputed embeddings for clustering (count={len(all_embeddings)})")
+    else:
+        if not can_use_pre:
+            logger.info("Not all posts contained embeddings; computing anew")
     debug = False
     start_time = time.time()
 

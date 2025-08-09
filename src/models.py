@@ -1,7 +1,7 @@
 # service/src/models.py
 
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Union
 
 
 class LanguageDetectionRequest(BaseModel):
@@ -69,6 +69,11 @@ class CategoryRelation(BaseModel):
     Tagging: Dict
 
 
+class MediaItem(BaseModel):
+    url: str
+    type: Optional[str] = None  # e.g., image, video
+
+
 class PostData(BaseModel):
     # Required core fields for clustering & identification
     id: int
@@ -93,7 +98,8 @@ class PostData(BaseModel):
     author_name: Optional[str] = None
     author_handle: Optional[str] = None
     author_avatar: Optional[str] = None
-    media: Optional[List[str]] = None
+    # Accept either a plain URL string or an object with url/type
+    media: Optional[List[Union[str, MediaItem]]] = None
     linkPreview: Optional[str] = None
     original: Optional[str] = None
     author: Optional[str] = None
