@@ -240,10 +240,15 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                         if len(mapped_target) == 2:
                             mapped_target = seamless_lang_mapping.get(mapped_target, "eng")
 
+                        # Compute a dynamic generation cap (avoid conflicting max_length / max_new_tokens)
+                        # Heuristic: up to 1.5x input tokens, bounded [64, 256]
+                        approx_in_tokens = input_tokens
+                        dyn_max_new = max(64, min(256, int(approx_in_tokens * 1.5) if approx_in_tokens else 128))
+                        logger.debug(f"Seamless generation using max_new_tokens={dyn_max_new} (input_tokens={approx_in_tokens})")
                         generated_tokens = model.generate(
                             **text_inputs,
                             tgt_lang=mapped_target,
-                            max_length=512  # generous but below earlier 1000 to reduce warnings
+                            max_new_tokens=dyn_max_new
                         )
                         try:
                             gen_device = generated_tokens.device
@@ -263,11 +268,14 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                         mapped_target = target_lang if target_lang else "eng"
                         if len(mapped_target) == 2:
                             mapped_target = seamless_lang_mapping.get(mapped_target, "eng")
+                        # Use same dynamic new token cap for pipeline fallback
+                        approx_in_tokens = input_tokens
+                        dyn_max_new = max(64, min(256, int(approx_in_tokens * 1.5) if approx_in_tokens else 128))
                         result = translator(
                             text_to_translate,
                             src_lang=mapped_source,
                             tgt_lang=mapped_target,
-                            max_length=512
+                            max_new_tokens=dyn_max_new
                         )
                 except Exception as e1:
                     logger.warning(f"Direct model approach failed: {e1}")
