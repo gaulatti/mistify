@@ -39,6 +39,9 @@ warnings.filterwarnings("ignore", message="transformers.deepspeed module is depr
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.deepspeed")
 warnings.filterwarnings("ignore", message="You must either specify a `tgt_lang`")
 warnings.filterwarnings("ignore", message="Both `max_new_tokens`.*and `max_length`.*seem to have been set")
+warnings.filterwarnings("ignore", message="Your input_length.*is bigger than.*max_length")
+warnings.filterwarnings("ignore", message="Setting `pad_token_id`.*to `eos_token_id`")
+warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
 
 # ---- Logging Setup -------------------------------------------------------------
 logging.basicConfig(level=logging.INFO)

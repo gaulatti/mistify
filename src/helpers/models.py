@@ -79,12 +79,18 @@ def initialize_models(config):
     translator_model_name = None
     try:
         logger.info("🔧 Loading Seamless M4T v2 translation model...")
-        # Remove cache_dir to avoid model_kwargs issues with Seamless M4T
+        # Configure Seamless M4T v2 with better parameters
         translator = pipeline(
             "translation",
             model="facebook/seamless-m4t-v2-large",
             device=device_id,
-            trust_remote_code=True
+            trust_remote_code=True,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+            model_kwargs={
+                "low_cpu_mem_usage": True,
+                "use_safetensors": True,
+            } if device == "cuda" else {},
+            cache_dir=str(config["HF_CACHE"])
         )
         translator_model_name = "seamless-m4t-v2"
         logger.info("✓ Seamless M4T v2 translation model loaded successfully")
@@ -96,7 +102,8 @@ def initialize_models(config):
             translator = pipeline(
                 "translation",
                 model="Helsinki-NLP/opus-mt-mul-en",
-                device=device_id
+                device=device_id,
+                cache_dir=str(config["HF_CACHE"])
             )
             translator_model_name = "helsinki-nlp"
             logger.info("✓ Fallback translation model (Helsinki-NLP) loaded successfully")

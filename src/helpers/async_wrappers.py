@@ -172,13 +172,13 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
     # Model-specific limits based on actual capabilities
     if is_seamless:
         # Seamless M4T v2 can handle longer sequences (up to ~1024 tokens)
-        max_input_tokens = 800  # Conservative but reasonable limit
+        max_input_tokens = 400  # More conservative limit to avoid memory issues
         # For seamless, we don't use max_length parameter as it conflicts
         suggested_max_length = None
     else:
         # Helsinki-NLP and other models typically handle 512 tokens well
-        max_input_tokens = 450
-        suggested_max_length = max(150, min(512, int(input_length * 1.8)))
+        max_input_tokens = 350
+        suggested_max_length = max(100, min(400, int(input_length * 1.5)))
 
     # Language code mappings
     seamless_lang_mapping = {
@@ -209,19 +209,25 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                     mapped_source = "eng"
 
                 # For Seamless M4T, use max_new_tokens instead of max_length to avoid conflicts
-                # and ensure tgt_lang is properly set
+                # Calculate reasonable max_new_tokens based on input length
+                input_tokens = len(text_to_translate.split())
+                max_new_tokens = max(256, min(512, input_tokens * 2))
+
+                logger.info(f"Text: {text_to_translate}, Seamless translation: {mapped_source} -> eng, max_new_tokens: {max_new_tokens}")
+
                 result = translator(
                     text_to_translate,
                     src_lang=mapped_source,
-                    tgt_lang="eng",  # Always translate to English
-                    max_new_tokens=max(100, len(text_to_translate.split()) * 2),  # Use max_new_tokens instead
-                    do_sample=False  # Ensure deterministic output
+                    tgt_lang="eng",
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    num_beams=1
                 )
             else:
                 # For other models, use standard translation parameters
                 # Calculate appropriate max_length based on input
                 input_tokens = len(text_to_translate.split())
-                dynamic_max_length = max(100, min(512, input_tokens * 2))
+                dynamic_max_length = max(50, min(300, input_tokens * 2))
 
                 translation_params = {
                     "max_length": dynamic_max_length,
@@ -299,26 +305,29 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
         return result
 
     # Strategy 4: Ultra-conservative fallback
-    logger.warning("Trying ultra-conservative approach with 200 words")
-    ultra_conservative = " ".join(words[:200])
+    logger.warning("Trying ultra-conservative approach with 150 words")
+    ultra_conservative = " ".join(words[:150])
     result = _attempt_translation(ultra_conservative, "(ultra-conservative)")
     if result is not None:
         return result
 
     # Strategy 5: Last resort with minimal parameters
     try:
-        logger.warning("Last resort: minimal parameters with 100 words")
-        minimal_text = " ".join(words[:100])
+        logger.warning("Last resort: minimal parameters with 80 words")
+        minimal_text = " ".join(words[:80])
 
         if is_seamless:
             fallback_source = seamless_lang_mapping.get(source_lang[:2].lower() if source_lang else "en", "eng")
+            fallback_target = seamless_lang_mapping.get(target_lang[:3].lower(), "eng")
             result = translator(
                 minimal_text,
                 src_lang=fallback_source,
-                tgt_lang="eng"  # Always translate to English
+                tgt_lang=fallback_target,
+                max_new_tokens=40,
+                do_sample=False
             )
         else:
-            result = translator(minimal_text)
+            result = translator(minimal_text, max_length=100)
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
