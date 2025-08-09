@@ -213,13 +213,42 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
 
                 logger.info(f"Text: {text_to_translate}, Seamless translation: {mapped_source} -> eng, input_tokens: {input_tokens}")
 
-                # For Hugging Face pipeline, pass generation parameters correctly
-                result = translator(
-                    text_to_translate,
-                    src_lang=mapped_source,
-                    tgt_lang="eng",
-                    **{"max_length": 1000, "do_sample": False, "num_beams": 1}
-                )
+                # Seamless M4T v2 specific approaches
+                try:
+                    # Approach 1: v2 with proper language codes
+                    result = translator(
+                        text_to_translate,
+                        src_lang=mapped_source,
+                        tgt_lang="eng",
+                        max_length=1000
+                    )
+                except Exception as e1:
+                    logger.warning(f"v2 Approach 1 failed: {e1}")
+                    
+                    try:
+                        # Approach 2: Try without explicit target language (auto-detect to English)
+                        result = translator(
+                            text_to_translate,
+                            src_lang=mapped_source,
+                            max_length=1000
+                        )
+                    except Exception as e2:
+                        logger.warning(f"v2 Approach 2 failed: {e2}")
+                        
+                        try:
+                            # Approach 3: Use task-specific format for Seamless M4T v2
+                            # Some v2 models expect the target language in the text prefix
+                            prefixed_text = f"translate {mapped_source} to eng: {text_to_translate}"
+                            result = translator(prefixed_text, max_length=1000)
+                        except Exception as e3:
+                            logger.warning(f"v2 Approach 3 failed: {e3}")
+                            
+                            try:
+                                # Approach 4: Minimal call for v2
+                                result = translator(text_to_translate)
+                            except Exception as e4:
+                                logger.warning(f"v2 Approach 4 failed: {e4}")
+                                raise e4
             else:
                 # For other models, use standard translation parameters
                 # Calculate appropriate max_length based on input
