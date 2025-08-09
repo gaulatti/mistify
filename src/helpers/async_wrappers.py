@@ -215,32 +215,68 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
 
                 # Seamless M4T v2 proper usage with processor and model.generate()
                 try:
-                    # Try using the model directly if available (not pipeline)
-                    if hasattr(translator, 'model') and hasattr(translator, 'tokenizer'):
-                        # This is a pipeline, extract model and tokenizer
-                        model = translator.model
-                        processor = translator.tokenizer
+                    # Prefer direct model usage when available for better control
+                    # New HF Seamless pipelines expose .model and either .tokenizer or .processor
+                    model = getattr(translator, 'model', None)
+                    processor = getattr(translator, 'tokenizer', None) or getattr(translator, 'processor', None)
 
-                        # Process text input
-                        text_inputs = processor(text=text_to_translate, src_lang=mapped_source, return_tensors="pt")
+                    if model is not None and processor is not None:
+                        # Prepare inputs
+                        text_inputs = processor(
+                            text=text_to_translate,
+                            src_lang=mapped_source,
+                            return_tensors="pt"
+                        )
+                        # Move all tensors to model device (avoids CPU/GPU mismatch)
+                        model_device = next(model.parameters()).device
+                        logger.debug(f"Seamless translation: moving inputs to model device {model_device}")
+                        for k, v in text_inputs.items():
+                            if isinstance(v, torch.Tensor):
+                                text_inputs[k] = v.to(model_device)
 
-                        # Generate translation (remove generate_speech parameter)
-                        output_tokens = model.generate(**text_inputs, tgt_lang="eng", max_length=1000)
+                        # Use requested target language (fallback to English if not provided)
+                        mapped_target = target_lang if target_lang else "eng"
+                        # Safety: ensure target code is 3-letter for Seamless, map if needed
+                        if len(mapped_target) == 2:
+                            mapped_target = seamless_lang_mapping.get(mapped_target, "eng")
 
-                        # Decode result
-                        result = processor.decode(output_tokens[0].tolist()[0], skip_special_tokens=True)
-                        result = [{"translation_text": result}]  # Format as expected
+                        generated_tokens = model.generate(
+                            **text_inputs,
+                            tgt_lang=mapped_target,
+                            max_length=512  # generous but below earlier 1000 to reduce warnings
+                        )
+                        try:
+                            gen_device = generated_tokens.device
+                        except Exception:
+                            gen_device = 'unknown'
+                        logger.debug(f"Generated tokens device: {gen_device}")
 
+                        # Decode full sequence (previous code only decoded first token!)
+                        if hasattr(processor, 'batch_decode'):
+                            decoded = processor.batch_decode(generated_tokens, skip_special_tokens=True)[0]
+                        else:  # fallback
+                            decoded = processor.decode(generated_tokens[0], skip_special_tokens=True)
+
+                        result = [{"translation_text": decoded}]
                     else:
-                        # Fallback to pipeline interface with both src_lang and tgt_lang
-                        result = translator(text_to_translate, src_lang=mapped_source, tgt_lang="eng", max_length=1000)
-
+                        # Fallback: use pipeline call directly
+                        mapped_target = target_lang if target_lang else "eng"
+                        if len(mapped_target) == 2:
+                            mapped_target = seamless_lang_mapping.get(mapped_target, "eng")
+                        result = translator(
+                            text_to_translate,
+                            src_lang=mapped_source,
+                            tgt_lang=mapped_target,
+                            max_length=512
+                        )
                 except Exception as e1:
                     logger.warning(f"Direct model approach failed: {e1}")
-
                     try:
-                        # Approach 2: Try pipeline with both languages
-                        result = translator(text_to_translate, src_lang=mapped_source, tgt_lang="eng")
+                        # Second attempt: pipeline interface (might differ after HF updates)
+                        mapped_target = target_lang if target_lang else "eng"
+                        if len(mapped_target) == 2:
+                            mapped_target = seamless_lang_mapping.get(mapped_target, "eng")
+                        result = translator(text_to_translate, src_lang=mapped_source, tgt_lang=mapped_target)
                     except Exception as e2:
                         logger.warning(f"Pipeline with languages failed: {e2}")
                         raise e2
