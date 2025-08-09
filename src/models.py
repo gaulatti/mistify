@@ -95,7 +95,7 @@ class PostData(BaseModel):
     received_at: Optional[str] = None
     embedding: Optional[List[float]] = None
     categories_relation: Optional[List[CategoryRelation]] = None
-    similarPosts: Optional[List['PostData']] = None  # Only present in main post
+    similarPosts: Optional[List['PostData']] = []  # Default to empty list instead of 
 
 
 class PostClusteringRequest(BaseModel):
