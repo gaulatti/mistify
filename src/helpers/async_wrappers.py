@@ -211,15 +211,14 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                 # For Seamless M4T, use max_new_tokens instead of max_length to avoid conflicts
                 # Calculate reasonable max_new_tokens based on input length
                 input_tokens = len(text_to_translate.split())
-                max_new_tokens = max(256, min(512, input_tokens * 2))
 
-                logger.info(f"Text: {text_to_translate}, Seamless translation: {mapped_source} -> eng, max_new_tokens: {max_new_tokens}")
+                logger.info(f"Text: {text_to_translate}, Seamless translation: {mapped_source} -> eng, max_length: {max_length}")
 
                 result = translator(
                     text_to_translate,
                     src_lang=mapped_source,
                     tgt_lang="eng",
-                    max_new_tokens=max_new_tokens,
+                    max_length = max(100, min(1000, input_tokens * 3))
                     do_sample=False,
                     num_beams=1
                 )
