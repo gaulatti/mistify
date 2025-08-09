@@ -93,6 +93,16 @@ def initialize_models(config):
             cache_dir=str(config["HF_CACHE"])
         )
         translator_model_name = "seamless-m4t-v2"
+        # Force move model to target device (sometimes pipeline keeps parts on CPU)
+        try:
+            if hasattr(translator, 'model'):
+                model_device = torch.device(device if device != 'cuda' else f'cuda:{device_id}')
+                translator.model.to(model_device)
+                # Log a sample parameter device
+                sample_param_device = next(translator.model.parameters()).device
+                logger.info(f"✓ Seamless M4T model placed on device: {sample_param_device}")
+        except Exception as move_e:
+            logger.warning(f"⚠️ Could not explicitly move Seamless model to device: {move_e}")
         logger.info("✓ Seamless M4T v2 translation model loaded successfully")
     except Exception as e:
         logger.error("❌ Failed to load Seamless M4T v2 model: %s", e)
