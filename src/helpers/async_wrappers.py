@@ -224,25 +224,25 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                         # Process text input
                         text_inputs = processor(text=text_to_translate, src_lang=mapped_source, return_tensors="pt")
 
-                        # Generate translation
-                        output_tokens = model.generate(**text_inputs, tgt_lang="eng", generate_speech=False, max_length=1000)
+                        # Generate translation (remove generate_speech parameter)
+                        output_tokens = model.generate(**text_inputs, tgt_lang="eng", max_length=1000)
 
                         # Decode result
                         result = processor.decode(output_tokens[0].tolist()[0], skip_special_tokens=True)
                         result = [{"translation_text": result}]  # Format as expected
 
                     else:
-                        # Fallback to pipeline interface
-                        result = translator(text_to_translate, tgt_lang="eng", max_length=1000)
+                        # Fallback to pipeline interface with both src_lang and tgt_lang
+                        result = translator(text_to_translate, src_lang=mapped_source, tgt_lang="eng", max_length=1000)
 
                 except Exception as e1:
                     logger.warning(f"Direct model approach failed: {e1}")
 
                     try:
-                        # Approach 2: Try minimal pipeline call
-                        result = translator(text_to_translate, max_length=1000)
+                        # Approach 2: Try pipeline with both languages
+                        result = translator(text_to_translate, src_lang=mapped_source, tgt_lang="eng")
                     except Exception as e2:
-                        logger.warning(f"Minimal pipeline failed: {e2}")
+                        logger.warning(f"Pipeline with languages failed: {e2}")
                         raise e2
             else:
                 # For other models, use standard translation parameters
@@ -339,13 +339,10 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
 
         if is_seamless:
             fallback_source = seamless_lang_mapping.get(source_lang[:2].lower() if source_lang else "en", "eng")
-            fallback_target = seamless_lang_mapping.get(target_lang[:3].lower(), "eng")
             result = translator(
                 minimal_text,
                 src_lang=fallback_source,
-                tgt_lang=fallback_target,
-                max_new_tokens=40,
-                do_sample=False
+                tgt_lang="eng"
             )
         else:
             result = translator(minimal_text, max_length=100)
