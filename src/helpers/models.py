@@ -143,21 +143,71 @@ def initialize_models(config):
         logger.error("❌ Failed to load SpaCy model: %s", e)
         logger.info("Please install SpaCy English model: python -m spacy download en_core_web_sm")
 
-    # Text Generator (Flan-T5-XL)
+    # Text Generator (Flan-T5 with graceful fallback)
     text_generator = None
     try:
-        logger.info("🔧 Loading Flan-T5-XL text generation model...")
-        text_generator = pipeline(
-            "text2text-generation",
-            model="google/flan-t5-xl",
-            device=device_id,
-            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-            model_kwargs={"low_cpu_mem_usage": True} if device == "cuda" else {},
-            cache_dir=str(config["HF_CACHE"])
-        )
-        logger.info("✓ Flan-T5-XL text generation model loaded successfully")
+        from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+
+        requested_model_name = os.getenv("TEXT_GENERATION_MODEL", "google/flan-t5-xl")
+        attempted_models = [requested_model_name]
+
+        # If user explicitly sets a smaller model we only try that
+        fallback_chain = [] if requested_model_name != "google/flan-t5-xl" else [
+            "google/flan-t5-large",
+            "google/flan-t5-base"
+        ]
+
+        for model_name in [requested_model_name] + fallback_chain:
+            try:
+                logger.info(f"🔧 Loading text generation model: {model_name}")
+                tokenizer = AutoTokenizer.from_pretrained(
+                    model_name,
+                    cache_dir=str(config["HF_CACHE"]),
+                    use_fast=True
+                )
+                # Use accelerate device_map to spread layers if needed
+                model = AutoModelForSeq2SeqLM.from_pretrained(
+                    model_name,
+                    torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+                    device_map="auto" if device == "cuda" else None,
+                    low_cpu_mem_usage=True,
+                    cache_dir=str(config["HF_CACHE"])
+                )
+                # Build pipeline around pre-loaded model (avoids double init)
+                text_generator = pipeline(
+                    "text2text-generation",
+                    model=model,
+                    tokenizer=tokenizer,
+                    device=device_id if device == "cuda" else -1
+                )
+                logger.info(f"✓ Text generation model loaded: {model_name}")
+                break
+            except RuntimeError as re:
+                if "out of memory" in str(re).lower():
+                    logger.warning(f"⚠️ CUDA OOM loading {model_name}. Trying next fallback (if any)...")
+                    if torch.cuda.is_available():
+                        try:
+                            torch.cuda.empty_cache()
+                        except Exception:
+                            pass
+                    continue  # try next model in chain
+                else:
+                    logger.error(f"❌ RuntimeError loading {model_name}: {re}")
+                    continue
+            except Exception as ge:
+                logger.error(f"❌ General error loading {model_name}: {ge}")
+                continue
+
+        if text_generator is None:
+            logger.error("❌ All text generation model load attempts failed: %s", attempted_models)
+        else:
+            # Attach chosen model name for introspection
+            try:
+                text_generator.chosen_model_name = text_generator.model.config.name_or_path  # type: ignore
+            except Exception:
+                pass
     except Exception as e:
-        logger.error("❌ Failed to load Flan-T5-XL model: %s", e)
+        logger.error("❌ Failed during text generation model initialization logic: %s", e)
 
     # Ensure translator_model_name is always set
     if translator_model_name is None:
