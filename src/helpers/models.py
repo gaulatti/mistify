@@ -148,12 +148,43 @@ def initialize_models(config):
     try:
         from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
-        requested_model_name = os.getenv("TEXT_GENERATION_MODEL", "google/flan-t5-xl")
+        # Auto-select smaller model for low VRAM GPUs unless user overrides
+        user_specified = os.getenv("TEXT_GENERATION_MODEL")
+        requested_model_name = user_specified or "google/flan-t5-xl"
+        if device == "cuda" and not user_specified:
+            try:
+                props = torch.cuda.get_device_properties(0)
+                total_gb = props.total_memory / (1024**3)
+                # Heuristic thresholds (approx):
+                #   <9GB -> flan-t5-base, 9-15GB -> flan-t5-large, else xl
+                if total_gb < 9:
+                    requested_model_name = "google/flan-t5-base"
+                    logger.info(f"🔧 Detected {total_gb:.1f}GB VRAM -> auto-selecting flan-t5-base")
+                elif total_gb < 15:
+                    requested_model_name = "google/flan-t5-large"
+                    logger.info(f"🔧 Detected {total_gb:.1f}GB VRAM -> auto-selecting flan-t5-large")
+                else:
+                    logger.info(f"🔧 Detected {total_gb:.1f}GB VRAM -> keeping flan-t5-xl")
+            except Exception as mem_e:
+                logger.warning(f"⚠️ Could not inspect GPU memory for model sizing: {mem_e}")
         # Build full attempt list including fallbacks (for logging/reporting)
-        fallback_chain = [] if requested_model_name != "google/flan-t5-xl" else [
-            "google/flan-t5-large",
-            "google/flan-t5-base"
-        ]
+        if requested_model_name.endswith("flan-t5-xl"):
+            fallback_chain = [
+                "google/flan-t5-large",
+                "google/flan-t5-base",
+                "google/flan-t5-small"
+            ]
+        elif requested_model_name.endswith("flan-t5-large"):
+            fallback_chain = [
+                "google/flan-t5-base",
+                "google/flan-t5-small"
+            ]
+        elif requested_model_name.endswith("flan-t5-base"):
+            fallback_chain = [
+                "google/flan-t5-small"
+            ]
+        else:
+            fallback_chain = []
         attempted_models = [requested_model_name] + fallback_chain
 
         use_8bit = os.getenv("TEXT_GENERATION_8BIT", "false").lower() in {"1", "true", "yes"}
