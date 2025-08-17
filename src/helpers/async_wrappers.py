@@ -4,6 +4,7 @@ import asyncio
 import logging
 import torch
 from typing import List, Optional, Dict
+import copy
 
 logger = logging.getLogger(__name__)
 
@@ -466,46 +467,76 @@ def _embed_sync(embedder, texts: List[str], batch_size: int, normalize: bool):
 
 
 def _generate_text_sync(text_generator, prompt: str, params: Dict = None):
-    """Synchronous text generation function for thread execution with optional advanced params"""
-    try:
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+    """Synchronous text generation with progressive fallback for CUDA OOM and short output."""
+    base_kwargs = {
+        "max_new_tokens": 800,
+        "temperature": 0.7,
+        "do_sample": False,
+        "pad_token_id": getattr(getattr(text_generator, 'tokenizer', None), 'eos_token_id', None)
+    }
+    if params:
+        base_kwargs.update(params)
 
-        gen_kwargs = {
-            "max_new_tokens": 800,
-            "temperature": 0.7,
-            "do_sample": False,
-            "pad_token_id": getattr(text_generator.tokenizer, 'eos_token_id', None)
-        }
-        if params:
-            gen_kwargs.update(params)
+    # Ensure pad token
+    if base_kwargs.get("pad_token_id") is None:
+        try:
+            base_kwargs["pad_token_id"] = text_generator.model.config.eos_token_id
+        except Exception:
+            pass
 
-        # Safety: ensure pad_token_id set
-        if gen_kwargs.get("pad_token_id") is None:
-            try:
-                gen_kwargs["pad_token_id"] = text_generator.model.config.eos_token_id
-            except Exception:
-                pass
+    attempt_settings = []
+    # First attempt: as requested
+    attempt_settings.append(copy.deepcopy(base_kwargs))
+    # Second attempt (if needed): reduce beams & tokens
+    degraded = copy.deepcopy(base_kwargs)
+    degraded["num_beams"] = max(1, int(degraded.get("num_beams", 1)))
+    degraded["max_new_tokens"] = min(512, int(degraded.get("max_new_tokens", 800)))
+    degraded.pop("min_new_tokens", None)  # drop strict min to allow earlier stop
+    attempt_settings.append(degraded)
+    # Third attempt: minimal safe config
+    minimal = copy.deepcopy(degraded)
+    minimal["max_new_tokens"] = min(256, minimal.get("max_new_tokens", 512))
+    minimal["num_beams"] = 1
+    minimal["temperature"] = 0.0
+    minimal["do_sample"] = False
+    minimal.pop("no_repeat_ngram_size", None)  # relax repetition constraint if memory tight
+    attempt_settings.append(minimal)
 
-        result = text_generator(prompt, **gen_kwargs)
+    last_err = None
+    for idx, kw in enumerate(attempt_settings, 1):
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            logger.debug(f"Text generation attempt {idx} with params: { {k: kw[k] for k in kw if k != 'pad_token_id'} }")
+            result = text_generator(prompt, **kw)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            if isinstance(result, list) and result:
+                generated_text = result[0].get('generated_text', '')
+            else:
+                generated_text = str(result)
+            if generated_text.startswith(prompt):
+                generated_text = generated_text[len(prompt):].strip()
+            # Enforce a soft minimum length if requested and we have tokens left to try
+            min_new = base_kwargs.get("min_new_tokens") or 0
+            if min_new > 0 and len(generated_text.split()) < min_new * 0.4 and idx < len(attempt_settings):
+                logger.warning("Generated text very short; retrying with degraded settings")
+                continue
+            return generated_text
+        except RuntimeError as re:
+            if 'out of memory' in str(re).lower():
+                logger.warning(f"CUDA OOM in generation attempt {idx}; trying fallback")
+                last_err = re
+                continue
+            last_err = re
+            break
+        except Exception as e:
+            last_err = e
+            logger.error(f"Generation error attempt {idx}: {e}")
+            break
 
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        # Extract the generated text from the result
-        if isinstance(result, list) and len(result) > 0:
-            generated_text = result[0].get('generated_text', '')
-        else:
-            generated_text = str(result)
-
-        # Remove the original prompt from the generated text if it's included
-        if generated_text.startswith(prompt):
-            generated_text = generated_text[len(prompt):].strip()
-
-        return generated_text
-
-    except Exception as e:
-        logger.error(f"❌ Text generation failed: {e}")
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        raise e
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    if last_err:
+        raise last_err
+    raise RuntimeError("Unknown text generation failure")
