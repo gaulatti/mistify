@@ -465,20 +465,29 @@ def _embed_sync(embedder, texts: List[str], batch_size: int, normalize: bool):
     return vecs
 
 
-def _generate_text_sync(text_generator, prompt: str):
-    """Synchronous text generation function for thread execution"""
+def _generate_text_sync(text_generator, prompt: str, params: Dict = None):
+    """Synchronous text generation function for thread execution with optional advanced params"""
     try:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        # Generate text using the pipeline with specified parameters
-        result = text_generator(
-            prompt,
-            max_new_tokens=800,
-            temperature=0.7,
-            do_sample=False,
-            pad_token_id=text_generator.tokenizer.eos_token_id
-        )
+        gen_kwargs = {
+            "max_new_tokens": 800,
+            "temperature": 0.7,
+            "do_sample": False,
+            "pad_token_id": getattr(text_generator.tokenizer, 'eos_token_id', None)
+        }
+        if params:
+            gen_kwargs.update(params)
+
+        # Safety: ensure pad_token_id set
+        if gen_kwargs.get("pad_token_id") is None:
+            try:
+                gen_kwargs["pad_token_id"] = text_generator.model.config.eos_token_id
+            except Exception:
+                pass
+
+        result = text_generator(prompt, **gen_kwargs)
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
