@@ -149,15 +149,25 @@ def initialize_models(config):
         from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
         requested_model_name = os.getenv("TEXT_GENERATION_MODEL", "google/flan-t5-xl")
-        attempted_models = [requested_model_name]
-
-        # If user explicitly sets a smaller model we only try that
+        # Build full attempt list including fallbacks (for logging/reporting)
         fallback_chain = [] if requested_model_name != "google/flan-t5-xl" else [
             "google/flan-t5-large",
             "google/flan-t5-base"
         ]
+        attempted_models = [requested_model_name] + fallback_chain
 
-        for model_name in [requested_model_name] + fallback_chain:
+        use_8bit = os.getenv("TEXT_GENERATION_8BIT", "false").lower() in {"1", "true", "yes"}
+        bitsandbytes_available = False
+        if use_8bit and device == "cuda":
+            try:
+                import bitsandbytes  # noqa: F401
+                bitsandbytes_available = True
+                logger.info("🔧 8-bit quantization requested and bitsandbytes available; will try load_in_8bit")
+            except Exception:
+                logger.warning("⚠️ 8-bit quantization requested but bitsandbytes not installed; skipping")
+                use_8bit = False
+
+        for model_name in attempted_models:
             try:
                 logger.info(f"🔧 Loading text generation model: {model_name}")
                 tokenizer = AutoTokenizer.from_pretrained(
@@ -165,22 +175,40 @@ def initialize_models(config):
                     cache_dir=str(config["HF_CACHE"]),
                     use_fast=True
                 )
-                # Use accelerate device_map to spread layers if needed
+                # Assemble kwargs for model loading
+                model_load_kwargs = {
+                    "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
+                    "low_cpu_mem_usage": True,
+                    "cache_dir": str(config["HF_CACHE"]),
+                }
+                if device == "cuda":
+                    # Use accelerate to automatically place layers (prevents full memory spike)
+                    model_load_kwargs["device_map"] = "auto"
+                if use_8bit and bitsandbytes_available:
+                    model_load_kwargs["load_in_8bit"] = True
+
                 model = AutoModelForSeq2SeqLM.from_pretrained(
                     model_name,
-                    torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-                    device_map="auto" if device == "cuda" else None,
-                    low_cpu_mem_usage=True,
-                    cache_dir=str(config["HF_CACHE"])
+                    **model_load_kwargs
                 )
-                # Build pipeline around pre-loaded model (avoids double init)
+
+                # IMPORTANT: When model is loaded with accelerate (device_map=auto) we MUST NOT pass device= in pipeline
+                pipeline_kwargs = {
+                    "model": model,
+                    "tokenizer": tokenizer,
+                }
+                # Only pass device for simple CPU/MPS scenario where we didn't use accelerate mapping
+                if device != "cuda":
+                    # For mps or cpu just rely on model's internal device; no explicit device needed
+                    pass
+
                 text_generator = pipeline(
                     "text2text-generation",
-                    model=model,
-                    tokenizer=tokenizer,
-                    device=device_id if device == "cuda" else -1
+                    **pipeline_kwargs
                 )
                 logger.info(f"✓ Text generation model loaded: {model_name}")
+                if use_8bit and bitsandbytes_available:
+                    logger.info("✓ 8-bit quantized load successful")
                 break
             except RuntimeError as re:
                 if "out of memory" in str(re).lower():
@@ -204,6 +232,7 @@ def initialize_models(config):
             # Attach chosen model name for introspection
             try:
                 text_generator.chosen_model_name = text_generator.model.config.name_or_path  # type: ignore
+                logger.info(f"🔧 Chosen text generation model: {text_generator.chosen_model_name}")
             except Exception:
                 pass
     except Exception as e:
