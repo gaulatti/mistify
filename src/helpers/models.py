@@ -143,8 +143,24 @@ def initialize_models(config):
         logger.error("❌ Failed to load SpaCy model: %s", e)
         logger.info("Please install SpaCy English model: python -m spacy download en_core_web_sm")
 
+    # Text Generator (Flan-T5-XL)
+    text_generator = None
+    try:
+        logger.info("🔧 Loading Flan-T5-XL text generation model...")
+        text_generator = pipeline(
+            "text2text-generation",
+            model="google/flan-t5-xl",
+            device=device_id,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+            model_kwargs={"low_cpu_mem_usage": True} if device == "cuda" else {},
+            cache_dir=str(config["HF_CACHE"])
+        )
+        logger.info("✓ Flan-T5-XL text generation model loaded successfully")
+    except Exception as e:
+        logger.error("❌ Failed to load Flan-T5-XL model: %s", e)
+
     # Ensure translator_model_name is always set
     if translator_model_name is None:
         translator_model_name = "none"
 
-    return fasttext_model, classifier, translator, embedder, nlp, translator_model_name
+    return fasttext_model, classifier, translator, embedder, nlp, translator_model_name, text_generator

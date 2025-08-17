@@ -31,7 +31,7 @@ from types import SimpleNamespace
 
 from src.helpers.models import initialize_models
 from src.endpoints import (
-    language, classification, translation, embedding, clustering, analysis
+    language, classification, translation, embedding, clustering, analysis, generation
 )
 
 # Suppress transformers deprecation warnings
@@ -84,6 +84,7 @@ app_state.config["HF_CACHE"].mkdir(parents=True, exist_ok=True)
     app_state.embedder,
     app_state.nlp,
     app_state.translator_model_name,
+    app_state.text_generator,
 ) = initialize_models(app_state.config)
 app_state.classification_lock = asyncio.Lock()
 app_state.translation_lock = asyncio.Lock()
@@ -106,6 +107,7 @@ app.include_router(translation.router)
 app.include_router(embedding.router)
 app.include_router(clustering.router)
 app.include_router(analysis.router)
+app.include_router(generation.router)
 
 
 # ---- System Endpoints ----------------------------------------------------------
@@ -121,6 +123,7 @@ def health():
             "translator_loaded": app_state.translator is not None,
             "embedder_loaded": app_state.embedder is not None,
             "nlp_loaded": app_state.nlp is not None,
+            "text_generator_loaded": app_state.text_generator is not None,
         },
         "system": {
             "threads": process.num_threads(),
@@ -136,7 +139,7 @@ def root():
     return {
         "service": "Unified Text Analysis API",
         "version": "1.3.0",
-        "capabilities": ["language_detection", "content_classification", "translation", "text_clustering"],
+        "capabilities": ["language_detection", "content_classification", "translation", "text_clustering", "text_generation"],
         "endpoints": {
             "language_detection": "/detect",
             "content_classification": "/classify",
@@ -144,6 +147,7 @@ def root():
             "embeddings": "/embed",
             "text_clustering": "/cluster",
             "unified_analysis": "/analyze",
+            "text_generation": "/generate/text",
             "health": "/health"
         }
     }

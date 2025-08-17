@@ -170,3 +170,12 @@ class PostClusteringResponse(BaseModel):
     group: PostClusterGroup  # Single group instead of list
     processing_time: Optional[float] = None
     debug_info: Optional[Dict] = None
+
+
+class TextGenerationRequest(BaseModel):
+    prompt: str
+
+
+class TextGenerationResponse(BaseModel):
+    prompt: str
+    generated_text: str

@@ -463,3 +463,40 @@ def _embed_sync(embedder, texts: List[str], batch_size: int, normalize: bool):
         torch.cuda.empty_cache()
 
     return vecs
+
+
+def _generate_text_sync(text_generator, prompt: str):
+    """Synchronous text generation function for thread execution"""
+    try:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        # Generate text using the pipeline with specified parameters
+        result = text_generator(
+            prompt,
+            max_new_tokens=800,
+            temperature=0.7,
+            do_sample=False,
+            pad_token_id=text_generator.tokenizer.eos_token_id
+        )
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        # Extract the generated text from the result
+        if isinstance(result, list) and len(result) > 0:
+            generated_text = result[0].get('generated_text', '')
+        else:
+            generated_text = str(result)
+
+        # Remove the original prompt from the generated text if it's included
+        if generated_text.startswith(prompt):
+            generated_text = generated_text[len(prompt):].strip()
+
+        return generated_text
+
+    except Exception as e:
+        logger.error(f"❌ Text generation failed: {e}")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        raise e
