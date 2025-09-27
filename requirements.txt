@@ -9,7 +9,6 @@ sentencepiece==0.1.99
 protobuf>=3.20.0
 sacremoses>=0.0.43
 spacy>=3.4.0
-en-core-web-sm>=3.0.0
 accelerate>=0.20.0
 # Clustering dependencies
 networkx>=3.0
