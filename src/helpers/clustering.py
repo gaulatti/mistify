@@ -22,6 +22,7 @@ CLUSTERING_TOPIC_LABELS = ["economy", "politics", "sports", "conflict", "misc"]
 CLUSTERING_ALIAS_THR = 0.20
 CLUSTERING_TOK_REMOVE = {"the", "a", "an", "of"}
 CLUSTERING_PUN_RE = re.compile(r"[^\w\s]")
+CLUSTERING_DOMAIN_FILTERING = False  # Default: allow clustering across domains unless configured
 
 # New parameters for event-specific clustering
 CLUSTERING_ENTITY_CONTEXT_WEIGHT = 0.25
@@ -62,6 +63,9 @@ def discover_aliases(
 
     raw = sorted({e for ents in ents_per_doc for e in ents if e != "__NOENT__"})
     if not raw:
+        return {}
+    # Safety: AgglomerativeClustering requires at least 2 samples
+    if len(raw) < 2:
         return {}
 
     clean = [scrub_text(r) for r in raw]
