@@ -1,7 +1,8 @@
 import logging
+from typing import List
 from fastapi import APIRouter, Request
 from src.models import (
-    UnifiedAnalysisRequest, UnifiedAnalysisResponse, UnifiedAnalysisItemResponse,
+    UnifiedAnalysisItemRequest, UnifiedAnalysisResponse, UnifiedAnalysisItemResponse,
     LanguageDetectionRequest, TranslationRequest, ClassificationRequest,
     TranslationResponse
 )
@@ -14,12 +15,12 @@ logger = logging.getLogger("mistify")
 
 
 @router.post("/analyze", response_model=UnifiedAnalysisResponse)
-async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
+async def unified_analysis(items: List[UnifiedAnalysisItemRequest], http_request: Request):
     """Perform language detection, content classification, and translation on multiple input items"""
     app_state = http_request.state.app_state
     results = []
 
-    for item_req in req.items:
+    for item_req in items:
         item = UnifiedAnalysisItemResponse(
             id=item_req.id,
             content=item_req.content,
@@ -27,9 +28,10 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
         )
         detected_language = None
 
-        if req.detect_language and app_state.fasttext_model:
+        # Language detection is always enabled by default
+        if app_state.fasttext_model:
             try:
-                lang_req = LanguageDetectionRequest(text=item_req.content, k=req.language_count)
+                lang_req = LanguageDetectionRequest(text=item_req.content, k=1)
                 lang_resp = await detect_language(lang_req, http_request)
                 item.language_detection = lang_resp
                 if lang_resp.languages:
@@ -37,7 +39,8 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
             except Exception as e:
                 logger.error("❌ Language detection failed in unified analysis: %s", e)
 
-        if req.translate_to_english and app_state.translator:
+        # Translation to English if not already in English
+        if app_state.translator:
             try:
                 if not detected_language or detected_language.lower() not in ['en', 'eng']:
                     trans_req = TranslationRequest(text=item_req.content, source_language=detected_language)
@@ -53,10 +56,11 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
             except Exception as e:
                 logger.error("❌ Translation failed in unified analysis: %s", e)
 
-        if req.classify_content and app_state.classifier:
+        # Content classification is always enabled by default
+        if app_state.classifier:
             try:
                 text_to_classify = item.translation.translated_text if item.translation else item_req.content
-                class_req = ClassificationRequest(text=text_to_classify, labels=req.classification_labels)
+                class_req = ClassificationRequest(text=text_to_classify, labels=None)
                 class_resp = await classify_content(class_req, http_request)
                 item.content_classification = class_resp
             except Exception as e:
