@@ -40,7 +40,29 @@ class TranslationResponse(BaseModel):
 
 
 class UnifiedAnalysisItemRequest(BaseModel):
-    text: str
+    id: str
+    source: str
+    uri: str
+    content: str
+    createdAt: str
+    relevance: Optional[int] = None
+    lang: Optional[str] = None
+    author: Optional[Dict] = None
+    tags: Optional[List[str]] = []
+    media: Optional[List[str]] = []
+    linkPreview: Optional[str] = None
+    score: Optional[float] = None
+    scores: Optional[List] = []
+    categories: Optional[List[str]] = []
+    labels: Optional[List[str]] = []
+    hash: str
+    
+    class Config:
+        extra = "allow"
+
+
+class UnifiedAnalysisRequest(BaseModel):
+    items: List[UnifiedAnalysisItemRequest]
     detect_language: bool = True
     classify_content: bool = True
     translate_to_english: bool = False
@@ -48,12 +70,10 @@ class UnifiedAnalysisItemRequest(BaseModel):
     classification_labels: Optional[List[str]] = None
 
 
-class UnifiedAnalysisRequest(BaseModel):
-    items: List[UnifiedAnalysisItemRequest]
-
-
 class UnifiedAnalysisItemResponse(BaseModel):
-    text: str
+    id: str
+    content: str
+    hash: str
     language_detection: Optional[LanguageDetectionResponse] = None
     content_classification: Optional[ClassificationResponse] = None
     translation: Optional[TranslationResponse] = None
