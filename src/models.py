@@ -61,15 +61,6 @@ class UnifiedAnalysisItemRequest(BaseModel):
         extra = "allow"
 
 
-class UnifiedAnalysisRequest(BaseModel):
-    items: List[UnifiedAnalysisItemRequest]
-    detect_language: bool = True
-    classify_content: bool = True
-    translate_to_english: bool = False
-    language_count: int = 1
-    classification_labels: Optional[List[str]] = None
-
-
 class UnifiedAnalysisItemResponse(BaseModel):
     id: str
     content: str
