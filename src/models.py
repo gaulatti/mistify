@@ -39,7 +39,7 @@ class TranslationResponse(BaseModel):
     confidence_score: Optional[float] = None
 
 
-class UnifiedAnalysisRequest(BaseModel):
+class UnifiedAnalysisItemRequest(BaseModel):
     text: str
     detect_language: bool = True
     classify_content: bool = True
@@ -48,11 +48,19 @@ class UnifiedAnalysisRequest(BaseModel):
     classification_labels: Optional[List[str]] = None
 
 
-class UnifiedAnalysisResponse(BaseModel):
+class UnifiedAnalysisRequest(BaseModel):
+    items: List[UnifiedAnalysisItemRequest]
+
+
+class UnifiedAnalysisItemResponse(BaseModel):
     text: str
     language_detection: Optional[LanguageDetectionResponse] = None
     content_classification: Optional[ClassificationResponse] = None
     translation: Optional[TranslationResponse] = None
+
+
+class UnifiedAnalysisResponse(BaseModel):
+    results: List[UnifiedAnalysisItemResponse]
 
 
 class EmbeddingItem(BaseModel):
