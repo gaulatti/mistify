@@ -37,25 +37,30 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
             except Exception as e:
                 logger.error("❌ Language detection failed in unified analysis: %s", e)
 
-        if req.translate_to_english and app_state.translator:
+        # Always translate non-English content
+        if app_state.translator and detected_language and detected_language.lower() not in ['en', 'eng']:
             try:
-                if not detected_language or detected_language.lower() not in ['en', 'eng']:
-                    trans_req = TranslationRequest(text=item_req.content, source_language=detected_language)
-                    trans_resp = await translate_text(trans_req, http_request)
-                    item.translation = trans_resp
-                else:
-                    item.translation = TranslationResponse(
-                        original_text=item_req.content,
-                        translated_text=item_req.content,
-                        source_language=detected_language,
-                        target_language="eng"
-                    )
+                trans_req = TranslationRequest(text=item_req.content, source_language=detected_language)
+                trans_resp = await translate_text(trans_req, http_request)
+                item.translation = trans_resp
+                # Update content to translated text
+                item.content = trans_resp.translated_text
             except Exception as e:
                 logger.error("❌ Translation failed in unified analysis: %s", e)
+        elif detected_language and detected_language.lower() in ['en', 'eng']:
+            # Already in English, just record that
+            item.translation = TranslationResponse(
+                original_text=item_req.content,
+                translated_text=item_req.content,
+                source_language=detected_language,
+                target_language="eng"
+            )
 
         if req.classify_content and app_state.classifier:
             try:
-                text_to_classify = item.translation.translated_text if item.translation else item_req.content
+                # Use the (potentially translated) content for classification
+                text_to_classify = item.content
+                
                 class_req = ClassificationRequest(text=text_to_classify, labels=req.classification_labels)
                 class_resp = await classify_content(class_req, http_request)
                 item.content_classification = class_resp
