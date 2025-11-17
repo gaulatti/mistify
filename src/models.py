@@ -77,6 +77,8 @@ class UnifiedAnalysisItemResponse(BaseModel):
     language_detection: Optional[LanguageDetectionResponse] = None
     content_classification: Optional[ClassificationResponse] = None
     translation: Optional[TranslationResponse] = None
+    newsworthiness: Optional[float] = None
+    urgency: Optional[float] = None
 
 
 class UnifiedAnalysisResponse(BaseModel):
