@@ -22,17 +22,21 @@ async def _compute_weighted_classification_score(
     score_name: str
 ) -> float:
     """
-    Generic helper to compute a weighted score from classification probabilities.
+    Generic helper to compute a score from classification based on the top label.
+
+    Instead of weighted averaging (which clusters around middle values),
+    we use the top-scoring label to determine the base score, then adjust
+    based on the confidence level.
 
     Args:
         text: Text to classify
         http_request: FastAPI request object
-        labels: List of classification labels
-        weights: Dict mapping each label to its weight
+        labels: List of classification labels (ordered from highest to lowest score value)
+        weights: Dict mapping each label to its score value (0-10)
         score_name: Name of the score (for logging)
 
     Returns:
-        Weighted score as a float
+        Score as a float (0-10)
     """
     try:
         class_req = ClassificationRequest(text=text, labels=labels)
@@ -44,13 +48,34 @@ async def _compute_weighted_classification_score(
         result_labels = class_resp.full_result["labels"]
         result_scores = class_resp.full_result["scores"]
 
-        # Create a mapping from label to probability
-        label_probs = dict(zip(result_labels, result_scores))
+        if not result_labels or not result_scores:
+            return 0.0
 
-        # Calculate weighted score
-        score = sum(weights.get(label, 0.0) * label_probs.get(label, 0.0) for label in labels)
+        # Get the top predicted label and its confidence
+        top_label = result_labels[0]
+        top_confidence = result_scores[0]
 
-        return round(score, 2)
+        # Get the base score for this label
+        base_score = weights.get(top_label, 0.0)
+
+        # If confidence is very high (>0.7), use the base score
+        # If confidence is moderate (0.4-0.7), blend towards middle
+        # If confidence is low (<0.4), move towards middle of scale (5.0)
+        if top_confidence >= 0.7:
+            # High confidence: use the base score directly
+            final_score = base_score
+        elif top_confidence >= 0.4:
+            # Medium confidence: slight blend towards center
+            # Blend factor: 0.0 at confidence=0.7, up to 0.3 at confidence=0.4
+            blend_factor = (0.7 - top_confidence) / 0.3 * 0.3
+            final_score = base_score * (1 - blend_factor) + 5.0 * blend_factor
+        else:
+            # Low confidence: stronger blend towards center
+            # At very low confidence (0.25), we're 50% towards center
+            blend_factor = min(0.5, (0.4 - top_confidence) / 0.4 * 0.5)
+            final_score = base_score * (1 - blend_factor) + 5.0 * blend_factor
+
+        return round(final_score, 2)
     except Exception as e:
         logger.error("❌ %s scoring failed: %s", score_name, e)
         return 0.0
