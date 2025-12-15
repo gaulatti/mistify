@@ -25,14 +25,19 @@ import psutil
 import torch
 import warnings
 import pathlib
+import time
 from concurrent.futures import ThreadPoolExecutor
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import Response
 from types import SimpleNamespace
+
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from src.helpers.models import initialize_models
 from src.endpoints import (
     language, classification, translation, embedding, clustering, analysis, generation
 )
+from src import metrics
 
 # Suppress transformers deprecation warnings
 warnings.filterwarnings("ignore", message="transformers.deepspeed module is deprecated")
@@ -100,6 +105,34 @@ async def add_state_to_request(request: Request, call_next):
     return response
 
 
+# ---- Prometheus Metrics Middleware --------------------------------------------
+@app.middleware("http")
+async def prometheus_http_metrics(request: Request, call_next):
+    method = request.method
+    route_label = metrics.route_label_from_request_scope(request.scope)
+
+    start = time.perf_counter()
+    metrics.HTTP_INPROGRESS.inc()
+    try:
+        response = await call_next(request)
+        status_code = str(response.status_code)
+        return response
+    except HTTPException as e:
+        # Expected HTTP errors (4xx/5xx raised intentionally by handlers).
+        status_code = str(e.status_code)
+        raise
+    except Exception as e:
+        # Unexpected exception. FastAPI will turn this into a 500.
+        metrics.HTTP_EXCEPTIONS_TOTAL.labels(method=method, route=route_label, exception_type=type(e).__name__).inc()
+        status_code = "500"
+        raise
+    finally:
+        duration = time.perf_counter() - start
+        metrics.HTTP_INPROGRESS.dec()
+        metrics.HTTP_REQUESTS_TOTAL.labels(method=method, route=route_label, status_code=status_code).inc()
+        metrics.HTTP_REQUEST_DURATION_SECONDS.labels(method=method, route=route_label, status_code=status_code).observe(duration)
+
+
 # ---- API Routers ---------------------------------------------------------------
 app.include_router(language.router)
 app.include_router(classification.router)
@@ -131,6 +164,15 @@ def health():
             "device": "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"),
         }
     }
+
+
+@app.get("/metrics")
+def prometheus_metrics():
+    """Prometheus scrape endpoint."""
+    # Keep gauges fresh on each scrape.
+    metrics.update_runtime_metrics(app_state)
+    payload = generate_latest()  # default registry
+    return Response(content=payload, media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/")

@@ -1,6 +1,7 @@
 import logging
 from fastapi import APIRouter, HTTPException, Request
 from src.models import LanguageDetectionRequest, LanguageDetectionResponse
+from src import metrics
 
 router = APIRouter()
 logger = logging.getLogger("mistify")
@@ -18,7 +19,8 @@ async def detect_language(req: LanguageDetectionRequest, http_request: Request):
         if not cleaned_text:
             raise HTTPException(status_code=400, detail="Empty text provided")
 
-        labels, probs = app_state.fasttext_model.predict(cleaned_text, k=req.k)
+        with metrics.record_operation("language_detect"):
+            labels, probs = app_state.fasttext_model.predict(cleaned_text, k=req.k)
         languages = [label.replace("__label__", "") for label in labels]
         probabilities = [round(float(p), 4) for p in probs]
 

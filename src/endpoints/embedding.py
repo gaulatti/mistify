@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Request
 from typing import List
 from src.models import EmbeddingItem
 from src.helpers.async_wrappers import _embed_sync
+from src import metrics
 
 router = APIRouter()
 logger = logging.getLogger("mistify")
@@ -25,10 +26,11 @@ async def embed_items(req: EmbeddingItem, http_request: Request) -> dict:
         return item
 
     try:
-        # Call embedding function with single text in a list
-        vecs = await asyncio.get_running_loop().run_in_executor(
-            app_state.thread_pool, _embed_sync, app_state.embedder, [text], 64, True
-        )
+        with metrics.record_operation("embed"):
+            # Call embedding function with single text in a list
+            vecs = await asyncio.get_running_loop().run_in_executor(
+                app_state.thread_pool, _embed_sync, app_state.embedder, [text], 64, True
+            )
 
     except Exception as e:
         logger.error("❌ Embedding failed: %s", e)
