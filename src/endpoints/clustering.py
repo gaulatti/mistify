@@ -9,6 +9,7 @@ from src.models import (
     PostData, ClusteredPost
 )
 from src.helpers.async_wrappers import _cluster_sync
+from src import metrics
 
 router = APIRouter()
 logger = logging.getLogger("mistify")
@@ -113,26 +114,27 @@ async def cluster_texts(req: PostData, http_request: Request):
     debug = False
     start_time = time.time()
 
-    async with app_state.clustering_lock:
-        try:
-            result = await asyncio.wait_for(
-                asyncio.get_running_loop().run_in_executor(
-                    app_state.thread_pool,
-                    _cluster_sync,
-                    texts,
-                    app_state.nlp, 
-                    app_state.embedder, 
-                    app_state.classifier,
-                    cluster_config,
-                    debug
-                ),
-                timeout=app_state.config["TIMEOUT"] * 4,
-            )
-        except asyncio.TimeoutError:
-            raise HTTPException(status_code=408, detail="Clustering request timed out")
-        except Exception as e:
-            logger.error("❌ Clustering error: %s", e)
-            raise HTTPException(status_code=500, detail=f"Clustering failed: {str(e)}")
+    with metrics.record_operation("cluster"):
+        async with app_state.clustering_lock:
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(
+                        app_state.thread_pool,
+                        _cluster_sync,
+                        texts,
+                        app_state.nlp, 
+                        app_state.embedder, 
+                        app_state.classifier,
+                        cluster_config,
+                        debug
+                    ),
+                    timeout=app_state.config["TIMEOUT"] * 4,
+                )
+            except asyncio.TimeoutError:
+                raise HTTPException(status_code=408, detail="Clustering request timed out")
+            except Exception as e:
+                logger.error("❌ Clustering error: %s", e)
+                raise HTTPException(status_code=500, detail=f"Clustering failed: {str(e)}")
 
     processing_time = time.time() - start_time
     logger.info("✓ Clustering completed: %d posts -> %d groups in %.2fs", len(texts), len(result["groups"]), processing_time)

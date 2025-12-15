@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from src.models import TextGenerationRequest, TextGenerationResponse
 from src.helpers.async_wrappers import _generate_text_sync
+from src import metrics
 
 router = APIRouter()
 logger = logging.getLogger("mistify")
@@ -34,9 +35,10 @@ async def generate_text(req: TextGenerationRequest, http_request: Request) -> Te
             # Beam search + sampling can be expensive; allow but could warn
             logger.debug("Beam search with sampling enabled; potential latency increase")
 
-        generated_text = await asyncio.get_running_loop().run_in_executor(
-            app_state.thread_pool, _generate_text_sync, app_state.text_generator, req.prompt, params
-        )
+        with metrics.record_operation("generate_text"):
+            generated_text = await asyncio.get_running_loop().run_in_executor(
+                app_state.thread_pool, _generate_text_sync, app_state.text_generator, req.prompt, params
+            )
 
         return TextGenerationResponse(
             prompt=req.prompt,

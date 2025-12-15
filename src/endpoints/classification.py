@@ -1,8 +1,10 @@
 import asyncio
 import logging
+import time
 from fastapi import APIRouter, HTTPException, Request
 from src.models import ClassificationRequest, ClassificationResponse
 from src.helpers.async_wrappers import _classify_sync
+from src import metrics
 
 router = APIRouter()
 logger = logging.getLogger("mistify")
@@ -23,6 +25,9 @@ async def classify_content(req: ClassificationRequest, http_request: Request):
     if len(labels) < 2:
         labels.append("other")
 
+    op_start = time.perf_counter()
+    op_outcome = "success"
+
     async with app_state.classification_lock:
         try:
             result = await asyncio.wait_for(
@@ -32,12 +37,24 @@ async def classify_content(req: ClassificationRequest, http_request: Request):
                 timeout=app_state.config["TIMEOUT"],
             )
         except asyncio.TimeoutError:
+            op_outcome = "timeout"
+            duration = time.perf_counter() - op_start
+            metrics.MODEL_OPERATION_TOTAL.labels(operation="classify", outcome=op_outcome).inc()
+            metrics.MODEL_OPERATION_DURATION_SECONDS.labels(operation="classify", outcome=op_outcome).observe(duration)
             return ClassificationResponse(label="timeout", score=0.0, full_result={})
         except Exception as e:
+            op_outcome = "error"
+            duration = time.perf_counter() - op_start
+            metrics.MODEL_OPERATION_TOTAL.labels(operation="classify", outcome=op_outcome).inc()
+            metrics.MODEL_OPERATION_DURATION_SECONDS.labels(operation="classify", outcome=op_outcome).observe(duration)
             logger.error("❌ Classification error: %s", e)
             return ClassificationResponse(label="error", score=0.0, full_result={"error": str(e)})
 
     if not result or "scores" not in result or "labels" not in result:
+        op_outcome = "error"
+        duration = time.perf_counter() - op_start
+        metrics.MODEL_OPERATION_TOTAL.labels(operation="classify", outcome=op_outcome).inc()
+        metrics.MODEL_OPERATION_DURATION_SECONDS.labels(operation="classify", outcome=op_outcome).observe(duration)
         return ClassificationResponse(label="error", score=0.0, full_result={})
 
     scores = result["scores"]
@@ -50,4 +67,8 @@ async def classify_content(req: ClassificationRequest, http_request: Request):
         best_label = "uncertain"
 
     logger.info("✓ Classification: label=%s, score=%.2f", best_label, best_score)
+
+    duration = time.perf_counter() - op_start
+    metrics.MODEL_OPERATION_TOTAL.labels(operation="classify", outcome=op_outcome).inc()
+    metrics.MODEL_OPERATION_DURATION_SECONDS.labels(operation="classify", outcome=op_outcome).observe(duration)
     return ClassificationResponse(label=best_label, score=float(best_score), full_result=result)
