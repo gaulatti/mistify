@@ -112,6 +112,35 @@ MODEL_OPERATION_DURATION_SECONDS = Histogram(
     ),
 )
 
+# ---- Posts/Items processing metrics ------------------------------------------
+
+POSTS_PROCESSED_TOTAL = Counter(
+    "mistify_posts_processed_total",
+    "Total number of posts/items processed",
+    labelnames=("endpoint",),
+)
+
+POSTS_BATCH_SIZE = Histogram(
+    "mistify_posts_batch_size",
+    "Number of posts/items in each request",
+    labelnames=("endpoint",),
+    buckets=(1, 2, 5, 10, 20, 50, 100, 200, 500, 1000),
+)
+
+# ---- Retry/Failure metrics ---------------------------------------------------
+
+OPERATION_RETRIES_TOTAL = Counter(
+    "mistify_operation_retries_total",
+    "Total number of operation retries",
+    labelnames=("operation",),
+)
+
+OPERATION_FAILURES_TOTAL = Counter(
+    "mistify_operation_failures_total",
+    "Total number of operation failures",
+    labelnames=("operation", "failure_type"),
+)
+
 # ---- System gauges (updated at scrape-time) ----------------------------------
 
 PROCESS_RSS_BYTES = Gauge(
@@ -130,6 +159,24 @@ TORCH_DEVICE_INFO = Gauge(
     labelnames=("device",),
 )
 
+GPU_MEMORY_ALLOCATED_BYTES = Gauge(
+    "mistify_gpu_memory_allocated_bytes",
+    "GPU memory currently allocated by PyTorch in bytes",
+    labelnames=("device_id",),
+)
+
+GPU_MEMORY_RESERVED_BYTES = Gauge(
+    "mistify_gpu_memory_reserved_bytes",
+    "GPU memory currently reserved by PyTorch in bytes",
+    labelnames=("device_id",),
+)
+
+GPU_UTILIZATION_PERCENT = Gauge(
+    "mistify_gpu_utilization_percent",
+    "GPU utilization percentage (if available via nvidia-smi)",
+    labelnames=("device_id",),
+)
+
 
 def update_runtime_metrics(app_state: Optional[object] = None) -> None:
     """Update gauges that should reflect current runtime state.
@@ -144,6 +191,38 @@ def update_runtime_metrics(app_state: Optional[object] = None) -> None:
     TORCH_DEVICE_INFO.labels(device="cuda").set(1.0 if torch.cuda.is_available() else 0.0)
     TORCH_DEVICE_INFO.labels(device="mps").set(1.0 if torch.backends.mps.is_available() else 0.0)
     TORCH_DEVICE_INFO.labels(device="cpu").set(1.0)
+
+    # Update GPU metrics if CUDA is available
+    if torch.cuda.is_available():
+        try:
+            device_count = torch.cuda.device_count()
+            for device_id in range(device_count):
+                # Get memory stats
+                allocated = torch.cuda.memory_allocated(device_id)
+                reserved = torch.cuda.memory_reserved(device_id)
+                
+                GPU_MEMORY_ALLOCATED_BYTES.labels(device_id=str(device_id)).set(allocated)
+                GPU_MEMORY_RESERVED_BYTES.labels(device_id=str(device_id)).set(reserved)
+                
+                # Try to get GPU utilization using nvidia-smi (optional)
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits', 
+                         '-i', str(device_id)],
+                        capture_output=True,
+                        text=True,
+                        timeout=1
+                    )
+                    if result.returncode == 0:
+                        util = float(result.stdout.strip())
+                        GPU_UTILIZATION_PERCENT.labels(device_id=str(device_id)).set(util)
+                except Exception:
+                    # nvidia-smi not available or failed, skip utilization metric
+                    pass
+        except Exception as e:
+            # Log error but don't fail metrics collection
+            pass
 
     if app_state is not None:
         # Keep model names stable to avoid label cardinality explosions.
