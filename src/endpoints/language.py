@@ -29,8 +29,6 @@ async def detect_language(req: LanguageDetectionRequest, http_request: Request):
 
         logger.info("✓ Language detection completed: %s", languages)
         return LanguageDetectionResponse(languages=languages, probabilities=probabilities)
-    except HTTPException:
-        raise
     except Exception as e:
         metrics.OPERATION_FAILURES_TOTAL.labels(operation="language_detect", failure_type="exception").inc()
         logger.error("❌ Language detection error: %s", e)

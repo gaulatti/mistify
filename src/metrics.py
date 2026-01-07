@@ -11,6 +11,7 @@ All metrics are registered in the default Prometheus registry used by
 
 from __future__ import annotations
 
+import subprocess
 import time
 from contextlib import contextmanager
 from typing import Optional
@@ -206,7 +207,6 @@ def update_runtime_metrics(app_state: Optional[object] = None) -> None:
                 
                 # Try to get GPU utilization using nvidia-smi (optional)
                 try:
-                    import subprocess
                     result = subprocess.run(
                         ['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits', 
                          '-i', str(device_id)],
@@ -220,8 +220,8 @@ def update_runtime_metrics(app_state: Optional[object] = None) -> None:
                 except Exception:
                     # nvidia-smi not available or failed, skip utilization metric
                     pass
-        except Exception as e:
-            # Log error but don't fail metrics collection
+        except Exception:
+            # GPU metrics collection failed, continue with other metrics
             pass
 
     if app_state is not None:
