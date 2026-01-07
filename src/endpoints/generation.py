@@ -16,6 +16,9 @@ async def generate_text(req: TextGenerationRequest, http_request: Request) -> Te
     if app_state.text_generator is None:
         raise HTTPException(status_code=503, detail="Text generation model not available")
 
+    # Track text generation request
+    metrics.POSTS_PROCESSED_TOTAL.labels(endpoint="generate_text").inc()
+
     try:
         # Sanitize and clamp parameters
         params = {
@@ -47,5 +50,6 @@ async def generate_text(req: TextGenerationRequest, http_request: Request) -> Te
         )
 
     except Exception as e:
+        metrics.OPERATION_FAILURES_TOTAL.labels(operation="generate_text", failure_type="exception").inc()
         logger.error("❌ Text generation failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Text generation failed: {str(e)}")

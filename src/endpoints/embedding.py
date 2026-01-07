@@ -17,6 +17,9 @@ async def embed_items(req: EmbeddingItem, http_request: Request) -> dict:
     if app_state.embedder is None:
         raise HTTPException(status_code=503, detail="Embeddings model not available")
 
+    # Track embedding request
+    metrics.POSTS_PROCESSED_TOTAL.labels(endpoint="embed").inc()
+
     item = req.dict()
     if not item:
         return {}
@@ -33,6 +36,7 @@ async def embed_items(req: EmbeddingItem, http_request: Request) -> dict:
             )
 
     except Exception as e:
+        metrics.OPERATION_FAILURES_TOTAL.labels(operation="embed", failure_type="exception").inc()
         logger.error("❌ Embedding failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Embedding failed: {str(e)}")
 

@@ -22,9 +22,23 @@ Mistify exposes a unified FastAPI service with endpoints for each helper:
 - `/translate` — Translation
 - `/cluster` — Text clustering
 - `/analyze` — Unified multi-step analysis
+- `/embed` — Generate sentence embeddings
+- `/generate/text` — Text generation
 - `/health` — Health check
+- `/metrics` — Prometheus metrics for monitoring
 
 For detailed API documentation, including request/response examples, please see the [API Documentation on the Wiki](https://github.com/gaulatti/mistify/wiki/Text-Clustering-API-Documentation).
+
+## Monitoring
+
+Mistify exposes comprehensive Prometheus metrics on the `/metrics` endpoint for monitoring:
+
+- **Request metrics**: Requests per minute, latency, errors
+- **Processing metrics**: Posts analyzed per minute, batch sizes
+- **GPU metrics**: Memory usage, utilization, anomaly detection
+- **Failure tracking**: Timeouts, errors, retries by operation
+
+For detailed metrics documentation and example queries, see [METRICS.md](METRICS.md).
 
 ## Getting Started
 

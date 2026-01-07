@@ -25,6 +25,9 @@ async def classify_content(req: ClassificationRequest, http_request: Request):
     if len(labels) < 2:
         labels.append("other")
 
+    # Track that we're processing a classification request
+    metrics.POSTS_PROCESSED_TOTAL.labels(endpoint="classify").inc()
+
     op_start = time.perf_counter()
     op_outcome = "success"
 
@@ -41,12 +44,14 @@ async def classify_content(req: ClassificationRequest, http_request: Request):
             duration = time.perf_counter() - op_start
             metrics.MODEL_OPERATION_TOTAL.labels(operation="classify", outcome=op_outcome).inc()
             metrics.MODEL_OPERATION_DURATION_SECONDS.labels(operation="classify", outcome=op_outcome).observe(duration)
+            metrics.OPERATION_FAILURES_TOTAL.labels(operation="classify", failure_type="timeout").inc()
             return ClassificationResponse(label="timeout", score=0.0, full_result={})
         except Exception as e:
             op_outcome = "error"
             duration = time.perf_counter() - op_start
             metrics.MODEL_OPERATION_TOTAL.labels(operation="classify", outcome=op_outcome).inc()
             metrics.MODEL_OPERATION_DURATION_SECONDS.labels(operation="classify", outcome=op_outcome).observe(duration)
+            metrics.OPERATION_FAILURES_TOTAL.labels(operation="classify", failure_type="exception").inc()
             logger.error("❌ Classification error: %s", e)
             return ClassificationResponse(label="error", score=0.0, full_result={"error": str(e)})
 
@@ -55,6 +60,7 @@ async def classify_content(req: ClassificationRequest, http_request: Request):
         duration = time.perf_counter() - op_start
         metrics.MODEL_OPERATION_TOTAL.labels(operation="classify", outcome=op_outcome).inc()
         metrics.MODEL_OPERATION_DURATION_SECONDS.labels(operation="classify", outcome=op_outcome).observe(duration)
+        metrics.OPERATION_FAILURES_TOTAL.labels(operation="classify", failure_type="invalid_result").inc()
         return ClassificationResponse(label="error", score=0.0, full_result={})
 
     scores = result["scores"]

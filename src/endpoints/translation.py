@@ -16,6 +16,9 @@ async def translate_text(req: TranslationRequest, http_request: Request):
     if app_state.translator is None:
         raise HTTPException(status_code=503, detail="Translation model not available")
 
+    # Track translation request
+    metrics.POSTS_PROCESSED_TOTAL.labels(endpoint="translate").inc()
+
     with metrics.record_operation("translate"):
         async with app_state.translation_lock:
             try:
@@ -32,12 +35,15 @@ async def translate_text(req: TranslationRequest, http_request: Request):
                     timeout=app_state.config["TIMEOUT"] * 2,
                 )
             except asyncio.TimeoutError:
+                metrics.OPERATION_FAILURES_TOTAL.labels(operation="translate", failure_type="timeout").inc()
                 raise HTTPException(status_code=408, detail="Translation request timed out")
             except Exception as e:
+                metrics.OPERATION_FAILURES_TOTAL.labels(operation="translate", failure_type="exception").inc()
                 logger.error("❌ Translation error: %s", e)
                 raise HTTPException(status_code=500, detail=f"Translation failed: {str(e)}")
 
         if result is None:
+            metrics.OPERATION_FAILURES_TOTAL.labels(operation="translate", failure_type="null_result").inc()
             raise HTTPException(status_code=500, detail="Translation failed")
 
         try:
@@ -69,5 +75,6 @@ async def translate_text(req: TranslationRequest, http_request: Request):
                 target_language=req.target_language
             )
         except Exception as e:
+            metrics.OPERATION_FAILURES_TOTAL.labels(operation="translate", failure_type="parse_error").inc()
             logger.error("❌ Failed to parse translation result: %s, result type: %s", e, type(result))
             raise HTTPException(status_code=500, detail="Failed to parse translation result")

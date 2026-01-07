@@ -15,6 +15,9 @@ async def detect_language(req: LanguageDetectionRequest, http_request: Request):
         raise HTTPException(status_code=503, detail="FastText model not available")
 
     try:
+        # Track language detection request
+        metrics.POSTS_PROCESSED_TOTAL.labels(endpoint="detect").inc()
+        
         cleaned_text = ' '.join(req.text.replace('\n', ' ').replace('\r', ' ').strip().split())
         if not cleaned_text:
             raise HTTPException(status_code=400, detail="Empty text provided")
@@ -27,5 +30,6 @@ async def detect_language(req: LanguageDetectionRequest, http_request: Request):
         logger.info("✓ Language detection completed: %s", languages)
         return LanguageDetectionResponse(languages=languages, probabilities=probabilities)
     except Exception as e:
+        metrics.OPERATION_FAILURES_TOTAL.labels(operation="language_detect", failure_type="exception").inc()
         logger.error("❌ Language detection error: %s", e)
         raise HTTPException(status_code=500, detail=f"Language detection failed: {str(e)}")
