@@ -145,6 +145,12 @@ async def score_urgency(text: str, http_request: Request) -> float:
 async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
     """Perform language detection, content classification, and translation on multiple input items"""
     app_state = http_request.state.app_state
+    
+    # Track batch size and posts processed
+    batch_size = len(req.items)
+    metrics.POSTS_BATCH_SIZE.labels(endpoint="analyze").observe(batch_size)
+    metrics.POSTS_PROCESSED_TOTAL.labels(endpoint="analyze").inc(batch_size)
+    
     with metrics.record_operation("analyze"):
         results = []
 

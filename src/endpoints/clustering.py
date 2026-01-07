@@ -38,6 +38,11 @@ async def cluster_texts(req: PostData, http_request: Request):
     else:
         logger.warning(f"⚠️ No similar posts provided for post {req.id}")
     
+    # Track batch size and posts processed
+    batch_size = len(texts)
+    metrics.POSTS_BATCH_SIZE.labels(endpoint="cluster").observe(batch_size)
+    metrics.POSTS_PROCESSED_TOTAL.labels(endpoint="cluster").inc(batch_size)
+    
     logger.info(f"🔍 Total texts for clustering: {len(texts)}")
     
     # If we only have the main post (no similar posts), return single cluster
@@ -131,8 +136,10 @@ async def cluster_texts(req: PostData, http_request: Request):
                     timeout=app_state.config["TIMEOUT"] * 4,
                 )
             except asyncio.TimeoutError:
+                metrics.OPERATION_FAILURES_TOTAL.labels(operation="cluster", failure_type="timeout").inc()
                 raise HTTPException(status_code=408, detail="Clustering request timed out")
             except Exception as e:
+                metrics.OPERATION_FAILURES_TOTAL.labels(operation="cluster", failure_type="exception").inc()
                 logger.error("❌ Clustering error: %s", e)
                 raise HTTPException(status_code=500, detail=f"Clustering failed: {str(e)}")
 
