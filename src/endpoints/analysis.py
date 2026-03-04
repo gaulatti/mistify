@@ -61,6 +61,17 @@ async def score_editorial_priority(text: str, http_request: Request) -> Tuple[fl
         "do not publish; not meaningfully newsworthy"
     ]
 
+    try:
+        class_req = ClassificationRequest(text=text, labels=labels)
+        class_resp = await classify_content(class_req, http_request)
+        newsworthiness, urgency, _ = _scores_from_editorial_result(class_resp)
+        return newsworthiness, urgency
+    except Exception as e:
+        logger.error("❌ Editorial scoring failed: %s", e)
+        return 0.0, 0.0
+
+
+def _scores_from_editorial_result(class_resp) -> Tuple[float, float, Optional[str]]:
     score_map = {
         "publish immediately and wake the editor": (10.0, 10.0),
         "publish quickly at the next editorial pass": (8.5, 6.5),
@@ -69,30 +80,23 @@ async def score_editorial_priority(text: str, http_request: Request) -> Tuple[fl
         "do not publish; not meaningfully newsworthy": (0.0, 0.0),
     }
 
-    try:
-        class_req = ClassificationRequest(text=text, labels=labels)
-        class_resp = await classify_content(class_req, http_request)
+    if not class_resp.full_result or "labels" not in class_resp.full_result:
+        return 0.0, 0.0, None
 
-        if not class_resp.full_result or "labels" not in class_resp.full_result:
-            return 0.0, 0.0
+    result_labels = class_resp.full_result["labels"]
+    result_scores = class_resp.full_result["scores"]
 
-        result_labels = class_resp.full_result["labels"]
-        result_scores = class_resp.full_result["scores"]
+    if not result_labels or not result_scores:
+        return 0.0, 0.0, None
 
-        if not result_labels or not result_scores:
-            return 0.0, 0.0
+    top_label = result_labels[0]
+    top_confidence = result_scores[0]
+    base_newsworthiness, base_urgency = score_map.get(top_label, (0.0, 0.0))
 
-        top_label = result_labels[0]
-        top_confidence = result_scores[0]
-        base_newsworthiness, base_urgency = score_map.get(top_label, (0.0, 0.0))
+    newsworthiness = _blend_towards_midpoint(base_newsworthiness, top_confidence, 5.0)
+    urgency = _blend_towards_midpoint(base_urgency, top_confidence, 3.0)
 
-        newsworthiness = _blend_towards_midpoint(base_newsworthiness, top_confidence, 5.0)
-        urgency = _blend_towards_midpoint(base_urgency, top_confidence, 3.0)
-
-        return round(newsworthiness, 2), round(urgency, 2)
-    except Exception as e:
-        logger.error("❌ Editorial scoring failed: %s", e)
-        return 0.0, 0.0
+    return round(newsworthiness, 2), round(urgency, 2), top_label
 
 
 def _record_shared_editorial_timing(
@@ -111,6 +115,17 @@ def _record_shared_editorial_timing(
     if item_timings is not None:
         item_timings.newsworthiness_ms = round(shared_ms, 2)
         item_timings.urgency_ms = round(shared_ms, 2)
+
+
+def _should_run_content_classification(editorial_label: Optional[str]) -> bool:
+    """Skip expensive taxonomy tagging for low-value stories."""
+    if not editorial_label:
+        return True
+
+    return editorial_label not in {
+        "publish only if it strongly fits our niche or coverage plan",
+        "do not publish; not meaningfully newsworthy",
+    }
 
 
 @router.post("/analyze", response_model=UnifiedAnalysisResponse)
@@ -142,6 +157,7 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
             )
             detected_language = None
             item_timings = UnifiedAnalysisItemTimings(total_ms=0.0) if req.include_timings else None
+            editorial_label = None
 
             if req.detect_language and app_state.fasttext_model:
                 step_started_at = time.perf_counter()
@@ -189,12 +205,37 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                     target_language="eng"
                 )
 
-            if req.classify_content and app_state.classifier:
+            # Compute newsworthiness and urgency from one editorial scoring pass
+            if app_state.classifier:
+                text_to_classify = item.content
+
+                step_started_at = time.perf_counter()
+                try:
+                    class_req = ClassificationRequest(
+                        text=text_to_classify,
+                        labels=[
+                            "publish immediately and wake the editor",
+                            "publish quickly at the next editorial pass",
+                            "publish during regular hours; useful but not urgent",
+                            "publish only if it strongly fits our niche or coverage plan",
+                            "do not publish; not meaningfully newsworthy",
+                        ],
+                    )
+                    editorial_resp = await classify_content(class_req, http_request)
+                    item.newsworthiness, item.urgency, editorial_label = _scores_from_editorial_result(
+                        editorial_resp
+                    )
+                except Exception as e:
+                    logger.error("❌ Editorial scoring failed in unified analysis: %s", e)
+                finally:
+                    _record_shared_editorial_timing(step_started_at, batch_totals_ms, item_timings)
+
+            if req.classify_content and app_state.classifier and _should_run_content_classification(editorial_label):
                 step_started_at = time.perf_counter()
                 try:
                     # Use the (potentially translated) content for classification
                     text_to_classify = item.content
-                    
+
                     class_req = ClassificationRequest(text=text_to_classify, labels=req.classification_labels)
                     class_resp = await classify_content(class_req, http_request)
                     item.content_classification = class_resp
@@ -208,20 +249,6 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                         batch_totals_ms,
                         item_timings,
                     )
-
-            # Compute newsworthiness and urgency from one editorial scoring pass
-            if app_state.classifier:
-                text_to_classify = item.content
-
-                step_started_at = time.perf_counter()
-                try:
-                    item.newsworthiness, item.urgency = await score_editorial_priority(
-                        text_to_classify, http_request
-                    )
-                except Exception as e:
-                    logger.error("❌ Editorial scoring failed in unified analysis: %s", e)
-                finally:
-                    _record_shared_editorial_timing(step_started_at, batch_totals_ms, item_timings)
 
             item_total_seconds = time.perf_counter() - item_started_at
             metrics.ANALYZE_STEP_DURATION_SECONDS.labels(step="item_total").observe(item_total_seconds)
