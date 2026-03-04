@@ -113,6 +113,58 @@ MODEL_OPERATION_DURATION_SECONDS = Histogram(
     ),
 )
 
+MODEL_OPERATION_PHASE_DURATION_SECONDS = Histogram(
+    "mistify_model_operation_phase_duration_seconds",
+    "Duration of individual phases inside a model/operation execution in seconds",
+    labelnames=("operation", "phase"),
+    buckets=(
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.5,
+        5.0,
+        10.0,
+        20.0,
+        40.0,
+        80.0,
+    ),
+)
+
+ANALYZE_STEP_DURATION_SECONDS = Histogram(
+    "mistify_analyze_step_duration_seconds",
+    "Duration of individual /analyze stages in seconds",
+    labelnames=("step",),
+    buckets=(
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.5,
+        5.0,
+        10.0,
+        20.0,
+        40.0,
+        80.0,
+    ),
+)
+
+ANALYZE_BATCH_ITEMS = Histogram(
+    "mistify_analyze_batch_items",
+    "Number of items submitted in each /analyze request",
+    buckets=(1, 2, 5, 10, 20, 50, 100, 250, 500, 1000),
+)
+
 # ---- Posts/Items processing metrics ------------------------------------------
 
 POSTS_PROCESSED_TOTAL = Counter(

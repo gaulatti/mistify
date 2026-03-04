@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from fastapi import APIRouter, HTTPException, Request
 from src.models import TranslationRequest, TranslationResponse
 from src.helpers.async_wrappers import _translate_sync
@@ -20,7 +21,14 @@ async def translate_text(req: TranslationRequest, http_request: Request):
     metrics.POSTS_PROCESSED_TOTAL.labels(endpoint="translate").inc()
 
     with metrics.record_operation("translate"):
+        queue_wait_start = time.perf_counter()
         async with app_state.translation_lock:
+            queue_wait_duration = time.perf_counter() - queue_wait_start
+            metrics.MODEL_OPERATION_PHASE_DURATION_SECONDS.labels(
+                operation="translate", phase="queue_wait"
+            ).observe(queue_wait_duration)
+
+            execution_start = time.perf_counter()
             try:
                 result = await asyncio.wait_for(
                     asyncio.get_running_loop().run_in_executor(
@@ -41,6 +49,11 @@ async def translate_text(req: TranslationRequest, http_request: Request):
                 metrics.OPERATION_FAILURES_TOTAL.labels(operation="translate", failure_type="exception").inc()
                 logger.error("❌ Translation error: %s", e)
                 raise HTTPException(status_code=500, detail=f"Translation failed: {str(e)}")
+            finally:
+                execution_duration = time.perf_counter() - execution_start
+                metrics.MODEL_OPERATION_PHASE_DURATION_SECONDS.labels(
+                    operation="translate", phase="execute"
+                ).observe(execution_duration)
 
         if result is None:
             metrics.OPERATION_FAILURES_TOTAL.labels(operation="translate", failure_type="null_result").inc()

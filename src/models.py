@@ -39,6 +39,26 @@ class TranslationResponse(BaseModel):
     confidence_score: Optional[float] = None
 
 
+class UnifiedAnalysisItemTimings(BaseModel):
+    total_ms: float
+    language_detection_ms: Optional[float] = None
+    translation_ms: Optional[float] = None
+    content_classification_ms: Optional[float] = None
+    newsworthiness_ms: Optional[float] = None
+    urgency_ms: Optional[float] = None
+
+
+class UnifiedAnalysisTimings(BaseModel):
+    total_ms: float
+    item_count: int
+    avg_item_ms: float
+    language_detection_ms: float = 0.0
+    translation_ms: float = 0.0
+    content_classification_ms: float = 0.0
+    newsworthiness_ms: float = 0.0
+    urgency_ms: float = 0.0
+
+
 class UnifiedAnalysisItemRequest(BaseModel):
     id: str
     source: str
@@ -66,6 +86,7 @@ class UnifiedAnalysisRequest(BaseModel):
     detect_language: bool = True
     classify_content: bool = True
     translate_to_english: bool = False
+    include_timings: bool = False
     language_count: int = 1
     classification_labels: Optional[List[str]] = None
 
@@ -79,10 +100,12 @@ class UnifiedAnalysisItemResponse(BaseModel):
     translation: Optional[TranslationResponse] = None
     newsworthiness: Optional[float] = None
     urgency: Optional[float] = None
+    timings: Optional[UnifiedAnalysisItemTimings] = None
 
 
 class UnifiedAnalysisResponse(BaseModel):
     results: List[UnifiedAnalysisItemResponse]
+    timings: Optional[UnifiedAnalysisTimings] = None
 
 
 class EmbeddingItem(BaseModel):

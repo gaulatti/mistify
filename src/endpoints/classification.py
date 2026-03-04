@@ -30,8 +30,15 @@ async def classify_content(req: ClassificationRequest, http_request: Request):
 
     op_start = time.perf_counter()
     op_outcome = "success"
+    queue_wait_start = time.perf_counter()
 
     async with app_state.classification_lock:
+        queue_wait_duration = time.perf_counter() - queue_wait_start
+        metrics.MODEL_OPERATION_PHASE_DURATION_SECONDS.labels(
+            operation="classify", phase="queue_wait"
+        ).observe(queue_wait_duration)
+
+        execution_start = time.perf_counter()
         try:
             result = await asyncio.wait_for(
                 asyncio.get_running_loop().run_in_executor(
@@ -54,6 +61,11 @@ async def classify_content(req: ClassificationRequest, http_request: Request):
             metrics.OPERATION_FAILURES_TOTAL.labels(operation="classify", failure_type="exception").inc()
             logger.error("❌ Classification error: %s", e)
             return ClassificationResponse(label="error", score=0.0, full_result={"error": str(e)})
+        finally:
+            execution_duration = time.perf_counter() - execution_start
+            metrics.MODEL_OPERATION_PHASE_DURATION_SECONDS.labels(
+                operation="classify", phase="execute"
+            ).observe(execution_duration)
 
     if not result or "scores" not in result or "labels" not in result:
         op_outcome = "error"
