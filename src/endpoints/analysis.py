@@ -1,10 +1,11 @@
 import logging
+import time
 from fastapi import APIRouter, Request
-from typing import Dict, List
+from typing import Dict, List, Optional
 from src.models import (
     UnifiedAnalysisRequest, UnifiedAnalysisResponse, UnifiedAnalysisItemResponse,
     LanguageDetectionRequest, TranslationRequest, ClassificationRequest,
-    TranslationResponse
+    TranslationResponse, UnifiedAnalysisItemTimings, UnifiedAnalysisTimings
 )
 from .language import detect_language
 from .translation import translate_text
@@ -13,6 +14,23 @@ from src import metrics
 
 router = APIRouter()
 logger = logging.getLogger("mistify")
+
+
+def _record_analyze_step_timing(
+    step_field: str,
+    metric_step: str,
+    started_at: float,
+    batch_totals_ms: Dict[str, float],
+    item_timings: Optional[UnifiedAnalysisItemTimings],
+) -> None:
+    duration_seconds = time.perf_counter() - started_at
+    duration_ms = duration_seconds * 1000.0
+
+    metrics.ANALYZE_STEP_DURATION_SECONDS.labels(step=metric_step).observe(duration_seconds)
+    batch_totals_ms[step_field] += duration_ms
+
+    if item_timings is not None:
+        setattr(item_timings, step_field, round(duration_ms, 2))
 
 
 async def _compute_weighted_classification_score(
@@ -145,24 +163,34 @@ async def score_urgency(text: str, http_request: Request) -> float:
 async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
     """Perform language detection, content classification, and translation on multiple input items"""
     app_state = http_request.state.app_state
-    
-    # Track batch size and posts processed
     batch_size = len(req.items)
     metrics.POSTS_BATCH_SIZE.labels(endpoint="analyze").observe(batch_size)
     metrics.POSTS_PROCESSED_TOTAL.labels(endpoint="analyze").inc(batch_size)
-    
+    analysis_started_at = time.perf_counter()
     with metrics.record_operation("analyze"):
         results = []
+        metrics.ANALYZE_BATCH_ITEMS.observe(batch_size)
+
+        batch_totals_ms = {
+            "language_detection_ms": 0.0,
+            "translation_ms": 0.0,
+            "content_classification_ms": 0.0,
+            "newsworthiness_ms": 0.0,
+            "urgency_ms": 0.0,
+        }
 
         for item_req in req.items:
+            item_started_at = time.perf_counter()
             item = UnifiedAnalysisItemResponse(
                 id=item_req.id,
                 content=item_req.content,
                 hash=item_req.hash
             )
             detected_language = None
+            item_timings = UnifiedAnalysisItemTimings(total_ms=0.0) if req.include_timings else None
 
             if req.detect_language and app_state.fasttext_model:
+                step_started_at = time.perf_counter()
                 try:
                     lang_req = LanguageDetectionRequest(text=item_req.content, k=req.language_count)
                     lang_resp = await detect_language(lang_req, http_request)
@@ -171,9 +199,17 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                         detected_language = lang_resp.languages[0]
                 except Exception as e:
                     logger.error("❌ Language detection failed in unified analysis: %s", e)
+                finally:
+                    _record_analyze_step_timing(
+                        "language_detection_ms",
+                        "language_detection",
+                        step_started_at,
+                        batch_totals_ms,
+                        item_timings,
+                    )
 
-            # Always translate non-English content
-            if app_state.translator and detected_language and detected_language.lower() not in ['en', 'eng']:
+            if req.translate_to_english and app_state.translator and detected_language and detected_language.lower() not in ['en', 'eng']:
+                step_started_at = time.perf_counter()
                 try:
                     trans_req = TranslationRequest(text=item_req.content, source_language=detected_language)
                     trans_resp = await translate_text(trans_req, http_request)
@@ -182,7 +218,15 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                     item.content = trans_resp.translated_text
                 except Exception as e:
                     logger.error("❌ Translation failed in unified analysis: %s", e)
-            elif detected_language and detected_language.lower() in ['en', 'eng']:
+                finally:
+                    _record_analyze_step_timing(
+                        "translation_ms",
+                        "translation",
+                        step_started_at,
+                        batch_totals_ms,
+                        item_timings,
+                    )
+            elif req.translate_to_english and detected_language and detected_language.lower() in ['en', 'eng']:
                 # Already in English, just record that
                 item.translation = TranslationResponse(
                     original_text=item_req.content,
@@ -192,6 +236,7 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                 )
 
             if req.classify_content and app_state.classifier:
+                step_started_at = time.perf_counter()
                 try:
                     # Use the (potentially translated) content for classification
                     text_to_classify = item.content
@@ -201,21 +246,85 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                     item.content_classification = class_resp
                 except Exception as e:
                     logger.error("❌ Content classification failed in unified analysis: %s", e)
+                finally:
+                    _record_analyze_step_timing(
+                        "content_classification_ms",
+                        "content_classification",
+                        step_started_at,
+                        batch_totals_ms,
+                        item_timings,
+                    )
 
             # Compute newsworthiness and urgency scores
             if app_state.classifier:
                 text_to_classify = item.content
 
+                step_started_at = time.perf_counter()
                 try:
                     item.newsworthiness = await score_newsworthiness(text_to_classify, http_request)
                 except Exception as e:
                     logger.error("❌ Newsworthiness scoring failed in unified analysis: %s", e)
+                finally:
+                    _record_analyze_step_timing(
+                        "newsworthiness_ms",
+                        "newsworthiness",
+                        step_started_at,
+                        batch_totals_ms,
+                        item_timings,
+                    )
 
+                step_started_at = time.perf_counter()
                 try:
                     item.urgency = await score_urgency(text_to_classify, http_request)
                 except Exception as e:
                     logger.error("❌ Urgency scoring failed in unified analysis: %s", e)
+                finally:
+                    _record_analyze_step_timing(
+                        "urgency_ms",
+                        "urgency",
+                        step_started_at,
+                        batch_totals_ms,
+                        item_timings,
+                    )
+
+            item_total_seconds = time.perf_counter() - item_started_at
+            metrics.ANALYZE_STEP_DURATION_SECONDS.labels(step="item_total").observe(item_total_seconds)
+
+            if item_timings is not None:
+                item_timings.total_ms = round(item_total_seconds * 1000.0, 2)
+                item.timings = item_timings
 
             results.append(item)
 
-        return UnifiedAnalysisResponse(results=results)
+        total_ms = (time.perf_counter() - analysis_started_at) * 1000.0
+        avg_item_ms = total_ms / len(req.items) if req.items else 0.0
+
+        if total_ms >= 1000.0:
+            logger.warning(
+                "Slow /analyze batch: items=%d total_ms=%.2f avg_item_ms=%.2f "
+                "language_detection_ms=%.2f translation_ms=%.2f "
+                "content_classification_ms=%.2f newsworthiness_ms=%.2f urgency_ms=%.2f",
+                batch_size,
+                total_ms,
+                avg_item_ms,
+                batch_totals_ms["language_detection_ms"],
+                batch_totals_ms["translation_ms"],
+                batch_totals_ms["content_classification_ms"],
+                batch_totals_ms["newsworthiness_ms"],
+                batch_totals_ms["urgency_ms"],
+            )
+
+        timings = None
+        if req.include_timings:
+            timings = UnifiedAnalysisTimings(
+                total_ms=round(total_ms, 2),
+                item_count=batch_size,
+                avg_item_ms=round(avg_item_ms, 2),
+                language_detection_ms=round(batch_totals_ms["language_detection_ms"], 2),
+                translation_ms=round(batch_totals_ms["translation_ms"], 2),
+                content_classification_ms=round(batch_totals_ms["content_classification_ms"], 2),
+                newsworthiness_ms=round(batch_totals_ms["newsworthiness_ms"], 2),
+                urgency_ms=round(batch_totals_ms["urgency_ms"], 2),
+            )
+
+        return UnifiedAnalysisResponse(results=results, timings=timings)
