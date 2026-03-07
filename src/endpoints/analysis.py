@@ -1,10 +1,10 @@
 import logging
 import time
 from fastapi import APIRouter, Request
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from src.models import (
     UnifiedAnalysisRequest, UnifiedAnalysisResponse, UnifiedAnalysisItemResponse,
-    LanguageDetectionRequest, TranslationRequest, ClassificationRequest,
+    LanguageDetectionRequest, LanguageDetectionResponse, TranslationRequest, ClassificationRequest,
     TranslationResponse, UnifiedAnalysisItemTimings, UnifiedAnalysisTimings
 )
 from .language import detect_language
@@ -14,6 +14,22 @@ from src import metrics
 
 router = APIRouter()
 logger = logging.getLogger("mistify")
+
+EDITORIAL_PRIORITY_LABELS = [
+    "major breaking story",
+    "important story but not breaking",
+    "routine publishable update",
+    "niche or low-priority item",
+    "not newsworthy",
+]
+
+EDITORIAL_SCORE_MAP = {
+    "major breaking story": (10.0, 10.0),
+    "important story but not breaking": (8.5, 5.0),
+    "routine publishable update": (6.0, 1.5),
+    "niche or low-priority item": (2.5, 0.5),
+    "not newsworthy": (0.0, 0.0),
+}
 
 
 def _record_analyze_step_timing(
@@ -33,18 +49,6 @@ def _record_analyze_step_timing(
         setattr(item_timings, step_field, round(duration_ms, 2))
 
 
-def _blend_towards_midpoint(base_score: float, confidence: float, midpoint: float) -> float:
-    """Shrink uncertain scores toward a midpoint so noisy labels do less damage."""
-    if confidence >= 0.7:
-        return base_score
-    if confidence >= 0.4:
-        blend_factor = (0.7 - confidence) / 0.3 * 0.3
-        return base_score * (1 - blend_factor) + midpoint * blend_factor
-
-    blend_factor = min(0.5, (0.4 - confidence) / 0.4 * 0.5)
-    return base_score * (1 - blend_factor) + midpoint * blend_factor
-
-
 async def score_editorial_priority(text: str, http_request: Request) -> Tuple[float, float]:
     """
     Compute both newsworthiness and urgency from one editorial triage decision.
@@ -53,16 +57,8 @@ async def score_editorial_priority(text: str, http_request: Request) -> Tuple[fl
     - newsworthiness: "should we publish this?"
     - urgency: "should this wake an editor right now?"
     """
-    labels = [
-        "publish immediately and wake the editor",
-        "publish quickly at the next editorial pass",
-        "publish during regular hours; useful but not urgent",
-        "publish only if it strongly fits our niche or coverage plan",
-        "do not publish; not meaningfully newsworthy"
-    ]
-
     try:
-        class_req = ClassificationRequest(text=text, labels=labels)
+        class_req = ClassificationRequest(text=text, labels=EDITORIAL_PRIORITY_LABELS)
         class_resp = await classify_content(class_req, http_request)
         newsworthiness, urgency, _ = _scores_from_editorial_result(class_resp)
         return newsworthiness, urgency
@@ -72,14 +68,6 @@ async def score_editorial_priority(text: str, http_request: Request) -> Tuple[fl
 
 
 def _scores_from_editorial_result(class_resp) -> Tuple[float, float, Optional[str]]:
-    score_map = {
-        "publish immediately and wake the editor": (10.0, 10.0),
-        "publish quickly at the next editorial pass": (8.5, 6.5),
-        "publish during regular hours; useful but not urgent": (7.0, 2.5),
-        "publish only if it strongly fits our niche or coverage plan": (3.5, 1.0),
-        "do not publish; not meaningfully newsworthy": (0.0, 0.0),
-    }
-
     if not class_resp.full_result or "labels" not in class_resp.full_result:
         return 0.0, 0.0, None
 
@@ -90,11 +78,24 @@ def _scores_from_editorial_result(class_resp) -> Tuple[float, float, Optional[st
         return 0.0, 0.0, None
 
     top_label = result_labels[0]
-    top_confidence = result_scores[0]
-    base_newsworthiness, base_urgency = score_map.get(top_label, (0.0, 0.0))
+    weighted_newsworthiness = 0.0
+    weighted_urgency = 0.0
+    total_weight = 0.0
 
-    newsworthiness = _blend_towards_midpoint(base_newsworthiness, top_confidence, 5.0)
-    urgency = _blend_towards_midpoint(base_urgency, top_confidence, 3.0)
+    for label, score in zip(result_labels, result_scores):
+        newsworthiness_weight, urgency_weight = EDITORIAL_SCORE_MAP.get(label, (0.0, 0.0))
+        # Slightly sharpen the distribution so the top labels matter more
+        # without collapsing everything to a single hard class.
+        weight = float(score) ** 1.5
+        weighted_newsworthiness += newsworthiness_weight * weight
+        weighted_urgency += urgency_weight * weight
+        total_weight += weight
+
+    if total_weight <= 0.0:
+        return 0.0, 0.0, top_label
+
+    newsworthiness = weighted_newsworthiness / total_weight
+    urgency = weighted_urgency / total_weight
 
     return round(newsworthiness, 2), round(urgency, 2), top_label
 
@@ -117,14 +118,47 @@ def _record_shared_editorial_timing(
         item_timings.urgency_ms = round(shared_ms, 2)
 
 
+def _extract_detected_language(lang_value: Any) -> Optional[str]:
+    """
+    Normalize externally provided language values.
+
+    Accepts:
+      - "es"
+      - {"lang": "es"}
+      - {"language": "es"}
+      - {"code": "es"}
+      - {"languages": ["es", ...]}
+    """
+    if lang_value is None:
+        return None
+
+    if isinstance(lang_value, str):
+        lang = lang_value.strip()
+        return lang if lang else None
+
+    if isinstance(lang_value, dict):
+        for key in ("lang", "language", "code"):
+            val = lang_value.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+
+        langs = lang_value.get("languages")
+        if isinstance(langs, list) and langs:
+            first = langs[0]
+            if isinstance(first, str) and first.strip():
+                return first.strip()
+
+    return None
+
+
 def _should_run_content_classification(editorial_label: Optional[str]) -> bool:
     """Skip expensive taxonomy tagging for low-value stories."""
     if not editorial_label:
         return True
 
     return editorial_label not in {
-        "publish only if it strongly fits our niche or coverage plan",
-        "do not publish; not meaningfully newsworthy",
+        "niche or low-priority item",
+        "not newsworthy",
     }
 
 
@@ -155,11 +189,18 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                 content=item_req.content,
                 hash=item_req.hash
             )
-            detected_language = None
+            detected_language = _extract_detected_language(item_req.lang)
             item_timings = UnifiedAnalysisItemTimings(total_ms=0.0) if req.include_timings else None
             editorial_label = None
 
-            if req.detect_language and app_state.fasttext_model:
+            # If language was already detected upstream, expose it in a consistent shape.
+            if detected_language:
+                item.language_detection = LanguageDetectionResponse(
+                    languages=[detected_language],
+                    probabilities=[1.0],
+                )
+
+            if req.detect_language and app_state.fasttext_model and not detected_language:
                 step_started_at = time.perf_counter()
                 try:
                     lang_req = LanguageDetectionRequest(text=item_req.content, k=req.language_count)
@@ -213,13 +254,7 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                 try:
                     class_req = ClassificationRequest(
                         text=text_to_classify,
-                        labels=[
-                            "publish immediately and wake the editor",
-                            "publish quickly at the next editorial pass",
-                            "publish during regular hours; useful but not urgent",
-                            "publish only if it strongly fits our niche or coverage plan",
-                            "do not publish; not meaningfully newsworthy",
-                        ],
+                        labels=EDITORIAL_PRIORITY_LABELS,
                     )
                     editorial_resp = await classify_content(class_req, http_request)
                     item.newsworthiness, item.urgency, editorial_label = _scores_from_editorial_result(

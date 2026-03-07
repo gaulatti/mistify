@@ -1,7 +1,7 @@
 # service/src/models.py
 
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Union
+from pydantic import BaseModel, Field, field_validator
+from typing import Any, Optional, List, Dict, Union
 
 
 class LanguageDetectionRequest(BaseModel):
@@ -59,6 +59,45 @@ class UnifiedAnalysisTimings(BaseModel):
     urgency_ms: float = 0.0
 
 
+class MediaItem(BaseModel):
+    url: str
+    type: Optional[str] = None  # e.g., image, video
+
+
+def _normalize_media_to_urls(value: Any) -> Any:
+    """Normalize media payload entries to URL strings.
+
+    Accepts:
+      - ["https://..."]
+      - [{"url": "https://...", "type": "image/png"}]
+      - [MediaItem(url="https://...", type="image/png")]
+    """
+    if value is None:
+        return value
+
+    if not isinstance(value, list):
+        return value
+
+    normalized: List[str] = []
+    for item in value:
+        if isinstance(item, str):
+            if item.strip():
+                normalized.append(item.strip())
+            continue
+
+        if isinstance(item, dict):
+            url = item.get("url")
+            if isinstance(url, str) and url.strip():
+                normalized.append(url.strip())
+            continue
+
+        url_attr = getattr(item, "url", None)
+        if isinstance(url_attr, str) and url_attr.strip():
+            normalized.append(url_attr.strip())
+
+    return normalized
+
+
 class UnifiedAnalysisItemRequest(BaseModel):
     id: str
     source: str
@@ -66,19 +105,28 @@ class UnifiedAnalysisItemRequest(BaseModel):
     content: str
     createdAt: str
     relevance: Optional[int] = None
-    lang: Optional[str] = None
+    lang: Optional[Union[str, Dict]] = None
     author: Optional[Dict] = None
-    tags: Optional[List[str]] = []
-    media: Optional[List[str]] = []
+    tags: Optional[List[str]] = Field(default_factory=list)
+    # Accept mixed payloads, normalize to URL strings.
+    media: Optional[List[str]] = Field(default_factory=list)
     linkPreview: Optional[str] = None
     score: Optional[float] = None
-    scores: Optional[List] = []
-    categories: Optional[List[str]] = []
-    labels: Optional[List[str]] = []
+    scores: Optional[List] = Field(default_factory=list)
+    categories: Optional[List[str]] = Field(default_factory=list)
+    labels: Optional[List[str]] = Field(default_factory=list)
+    # External pipelines may send precomputed embeddings/classification data.
+    embeddings: Optional[List[float]] = None
+    classification_labels: Optional[List[str]] = Field(default_factory=list)
     hash: str
     
     class Config:
         extra = "allow"
+
+    @field_validator("media", mode="before")
+    @classmethod
+    def normalize_media(cls, value: Any) -> Any:
+        return _normalize_media_to_urls(value)
 
 
 class UnifiedAnalysisRequest(BaseModel):
@@ -122,11 +170,6 @@ class CategoryRelation(BaseModel):
     Tagging: Dict
 
 
-class MediaItem(BaseModel):
-    url: str
-    type: Optional[str] = None  # e.g., image, video
-
-
 class PostData(BaseModel):
     # Required core fields for clustering & identification
     id: int
@@ -151,8 +194,8 @@ class PostData(BaseModel):
     author_name: Optional[str] = None
     author_handle: Optional[str] = None
     author_avatar: Optional[str] = None
-    # Accept either a plain URL string or an object with url/type
-    media: Optional[List[Union[str, MediaItem]]] = None
+    # Accept mixed payloads, normalize to URL strings.
+    media: Optional[List[str]] = None
     linkPreview: Optional[str] = None
     original: Optional[str] = None
     author: Optional[str] = None
@@ -161,6 +204,11 @@ class PostData(BaseModel):
 
     # Nested similar posts (avoid mutable default list)
     similarPosts: Optional[List['PostData']] = Field(default_factory=list)
+
+    @field_validator("media", mode="before")
+    @classmethod
+    def normalize_media(cls, value: Any) -> Any:
+        return _normalize_media_to_urls(value)
 
 
 class PostClusteringRequest(BaseModel):

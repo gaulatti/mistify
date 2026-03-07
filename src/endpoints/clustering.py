@@ -95,11 +95,17 @@ async def cluster_texts(req: PostData, http_request: Request):
         else:
             precomputed_categories.append([])
 
-    # Check if we have complete embedding data
+    # Track outsourced embedding coverage; helper will backfill missing entries.
+    has_any_embeddings = any(emb is not None for emb in precomputed_embeddings)
     has_complete_embeddings = all(emb is not None for emb in precomputed_embeddings)
     has_category_data = any(len(cats) > 0 for cats in precomputed_categories)
 
-    logger.info(f"🔍 Precomputed data: embeddings={has_complete_embeddings}, categories={has_category_data}")
+    logger.info(
+        "🔍 Precomputed data: embeddings_any=%s embeddings_complete=%s categories=%s",
+        has_any_embeddings,
+        has_complete_embeddings,
+        has_category_data,
+    )
 
     # Clustering configuration balanced for same-event detection
     cluster_config = {
@@ -113,7 +119,7 @@ async def cluster_texts(req: PostData, http_request: Request):
         "domain_filtering": False,  # Disable domain filtering - focus on events not domains
         "event_specific_mode": True, # Enable event-specific clustering
         "precomputed_entities": precomputed_entities if has_complete_entities else None,
-        "precomputed_embeddings": precomputed_embeddings if has_complete_embeddings else None,
+        "precomputed_embeddings": precomputed_embeddings if has_any_embeddings else None,
         "precomputed_categories": precomputed_categories if has_category_data else None,
     }
     debug = False

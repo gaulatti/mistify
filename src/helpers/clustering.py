@@ -277,18 +277,81 @@ def build_clustering_graph(
 
     if pre_embs is not None:
         try:
-            emb_tensor = torch.tensor(pre_embs, dtype=torch.float32)
-            if emb_tensor.shape[0] != len(texts):
-                logger.warning("Precomputed embeddings count (%d) doesn't match texts (%d); recomputing.", emb_tensor.shape[0], len(texts))
+            if len(pre_embs) != len(texts):
+                logger.warning(
+                    "Precomputed embeddings count (%d) doesn't match texts (%d); recomputing all.",
+                    len(pre_embs),
+                    len(texts),
+                )
                 emb = embedder.encode(texts, batch_size=64, convert_to_tensor=True, normalize_embeddings=True)
             else:
-                norms = torch.norm(emb_tensor, dim=1)
-                avg_norm = float(torch.mean(norms)) if norms.numel() else 1.0
-                if abs(avg_norm - 1.0) > 0.05:
-                    logger.info("Normalizing provided embeddings (avg norm %.3f)", avg_norm)
-                    emb_tensor = torch.nn.functional.normalize(emb_tensor, p=2, dim=1)
-                emb = emb_tensor
-                logger.info("Using %d precomputed embeddings (dim=%d)", emb.shape[0], emb.shape[1])
+                valid_indices = []
+                valid_vectors = []
+                missing_indices = []
+
+                for idx, vec in enumerate(pre_embs):
+                    if isinstance(vec, (list, tuple)) and len(vec) > 0:
+                        valid_indices.append(idx)
+                        valid_vectors.append(vec)
+                    else:
+                        missing_indices.append(idx)
+
+                if not valid_vectors:
+                    logger.info("No usable precomputed embeddings found; encoding all %d texts", len(texts))
+                    emb = embedder.encode(texts, batch_size=64, convert_to_tensor=True, normalize_embeddings=True)
+                else:
+                    # Ensure all provided vectors share the same dimensionality.
+                    dims = {len(v) for v in valid_vectors}
+                    if len(dims) != 1:
+                        logger.warning("Provided embeddings have inconsistent dimensions; recomputing all.")
+                        emb = embedder.encode(texts, batch_size=64, convert_to_tensor=True, normalize_embeddings=True)
+                    else:
+                        emb_dim = next(iter(dims))
+                        valid_tensor = torch.tensor(valid_vectors, dtype=torch.float32)
+
+                        # Normalize provided vectors if needed.
+                        norms = torch.norm(valid_tensor, dim=1)
+                        avg_norm = float(torch.mean(norms)) if norms.numel() else 1.0
+                        if abs(avg_norm - 1.0) > 0.05:
+                            logger.info("Normalizing provided embeddings (avg norm %.3f)", avg_norm)
+                            valid_tensor = torch.nn.functional.normalize(valid_tensor, p=2, dim=1)
+
+                        # Compose final tensor with provided vectors + computed fallbacks.
+                        emb = torch.empty((len(texts), emb_dim), dtype=torch.float32)
+                        for row_idx, text_idx in enumerate(valid_indices):
+                            emb[text_idx] = valid_tensor[row_idx]
+
+                        if missing_indices:
+                            missing_texts = [texts[i] for i in missing_indices]
+                            logger.info(
+                                "Using %d provided embeddings; computing %d missing embeddings",
+                                len(valid_indices),
+                                len(missing_indices),
+                            )
+                            missing_emb = embedder.encode(
+                                missing_texts,
+                                batch_size=64,
+                                convert_to_tensor=True,
+                                normalize_embeddings=True,
+                            )
+
+                            if missing_emb.shape[1] != emb_dim:
+                                logger.warning(
+                                    "Provided embedding dim (%d) != model dim (%d); recomputing all.",
+                                    emb_dim,
+                                    missing_emb.shape[1],
+                                )
+                                emb = embedder.encode(
+                                    texts,
+                                    batch_size=64,
+                                    convert_to_tensor=True,
+                                    normalize_embeddings=True,
+                                )
+                            else:
+                                for row_idx, text_idx in enumerate(missing_indices):
+                                    emb[text_idx] = missing_emb[row_idx]
+                        else:
+                            logger.info("Using %d precomputed embeddings (dim=%d)", len(valid_indices), emb_dim)
         except Exception as e:
             logger.warning("Failed to use precomputed embeddings (%s); falling back to encode", e)
             emb = embedder.encode(texts, batch_size=64, convert_to_tensor=True, normalize_embeddings=True)
