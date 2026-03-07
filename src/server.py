@@ -82,6 +82,7 @@ app_state.config = {
     "POOL_WORKERS": int(os.getenv("POOL_WORKERS", "4")),
     "TIMEOUT": int(os.getenv("TIMEOUT", "10")),
     "PROCESSING_LOOP_ENABLED": os.getenv("PROCESSING_LOOP_ENABLED", "true").lower() in {"1", "true", "yes"},
+    "PROCESSING_TRANSLATE_TO_ENGLISH": os.getenv("PROCESSING_TRANSLATE_TO_ENGLISH", "true").lower() in {"1", "true", "yes"},
     "PROCESSING_FETCH_URL": os.getenv("PROCESSING_FETCH_URL", "https://api.cronkite.fifthbell.com/processing/fetch"),
     "PROCESSING_POST_URL": os.getenv("PROCESSING_POST_URL", "https://n8n.gaulatti.com/webhook/727a2ba4-a274-462c-91cc-8d2abc7bb81e"),
     "PROCESSING_IDLE_SLEEP_SECONDS": float(os.getenv("PROCESSING_IDLE_SLEEP_SECONDS", "5")),
@@ -206,7 +207,10 @@ async def _processing_loop():
                 logger.info("📥 Fetched %d items (queueSize=%s)", len(items), queue_size)
 
                 try:
-                    req = UnifiedAnalysisRequest(items=items)
+                    req = UnifiedAnalysisRequest(
+                        items=items,
+                        translate_to_english=app_state.config["PROCESSING_TRANSLATE_TO_ENGLISH"]
+                    )
                 except ValidationError as ve:
                     logger.warning("⚠️ Batch validation failed; attempting per-item filtering: %s", ve)
                     valid_items = []
@@ -223,7 +227,10 @@ async def _processing_loop():
                         continue
 
                     logger.info("🧹 Filtered batch to %d valid items (from %d)", len(valid_items), len(items))
-                    req = UnifiedAnalysisRequest(items=valid_items)
+                    req = UnifiedAnalysisRequest(
+                        items=valid_items,
+                        translate_to_english=app_state.config["PROCESSING_TRANSLATE_TO_ENGLISH"]
+                    )
                     items = valid_items
 
                 analysis_resp = await analysis.unified_analysis(req, fake_request)

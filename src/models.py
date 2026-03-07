@@ -133,7 +133,7 @@ class UnifiedAnalysisRequest(BaseModel):
     items: List[UnifiedAnalysisItemRequest]
     detect_language: bool = True
     classify_content: bool = True
-    translate_to_english: bool = False
+    translate_to_english: bool = True
     include_timings: bool = False
     language_count: int = 1
     classification_labels: Optional[List[str]] = None
