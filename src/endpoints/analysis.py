@@ -162,7 +162,6 @@ def _should_run_content_classification(editorial_label: Optional[str]) -> bool:
     }
 
 
-@router.post("/analyze", response_model=UnifiedAnalysisResponse)
 async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
     """Perform language detection, content classification, and translation on multiple input items"""
     app_state = http_request.state.app_state
