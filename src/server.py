@@ -74,9 +74,7 @@ app_state = SimpleNamespace()
 app_state.config = {
     "FASTTEXT_MODEL_PATH": os.getenv("FASTTEXT_MODEL_PATH", "lid.176.bin"),
     "FASTTEXT_MODEL_URL": "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin",
-    "DEFAULT_CLASSIFICATION_LABELS": [
-        "breaking news", "newsworthy factual", "humor / satire", "non-newsworthy rant"
-    ],
+    "DEFAULT_CLASSIFICATION_LABELS": [],
     "MIN_SCORE": float(os.getenv("MIN_SCORE", "0.30")),
     "MIN_MARGIN": float(os.getenv("MIN_MARGIN", "0.10")),
     "POOL_WORKERS": int(os.getenv("POOL_WORKERS", "4")),
