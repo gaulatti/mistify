@@ -27,6 +27,17 @@ Mistify exposes a unified FastAPI service with endpoints for each helper:
 - `/health` — Health check
 - `/metrics` — Prometheus metrics for monitoring
 
+Mistify also exposes gRPC on port `50000` for new async operation submission:
+
+- `mistify.operations.MistifyOperations/AnalyzePost`
+- `mistify.operations.MistifyOperations/AnalyzePosts`
+- `mistify.operations.MistifyOperations/DetectLanguage`
+- `mistify.operations.MistifyOperations/ClassifyContent`
+- `mistify.operations.MistifyOperations/TranslateText`
+- `mistify.operations.MistifyOperations/EmbedText`
+- `mistify.operations.MistifyOperations/ClusterPost`
+- `mistify.operations.MistifyOperations/GenerateText`
+
 For detailed API documentation, including request/response examples, please see the [API Documentation on the Wiki](https://github.com/gaulatti/mistify/wiki/Text-Clustering-API-Documentation).
 
 ## Monitoring
@@ -76,7 +87,7 @@ The easiest way to run Mistify is with Docker. The Docker build pre-downloads al
 
 2.  **Run the container:**
     ```bash
-    docker run --memory=12g -p 8000:8000 mistify-service
+    docker run --memory=12g -p 8000:8000 -p 50000:50000 mistify-service
     ```
 
 ### Running Locally
@@ -84,7 +95,7 @@ The easiest way to run Mistify is with Docker. The Docker build pre-downloads al
 You can also run the FastAPI server directly with Uvicorn.
 
 ```bash
-uv run uvicorn src.server:app --host 0.0.0.0 --port 8000
+uv run python -m src.server
 ```
 
 ## Configuration

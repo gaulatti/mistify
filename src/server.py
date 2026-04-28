@@ -43,6 +43,7 @@ from src.endpoints import (
     language, classification, translation, embedding, clustering, analysis, generation
 )
 from src.models import UnifiedAnalysisRequest
+from src.grpc.server import start_grpc_server
 from src.operations.queue import OperationQueue
 from src.operations.worker import OperationWorker
 from src import metrics
@@ -90,6 +91,7 @@ app_state.config = {
     "PROCESSING_POST_URL": os.getenv("PROCESSING_POST_URL", "https://n8n.gaulatti.com/webhook/727a2ba4-a274-462c-91cc-8d2abc7bb81e"),
     "PROCESSING_IDLE_SLEEP_SECONDS": float(os.getenv("PROCESSING_IDLE_SLEEP_SECONDS", "5")),
     "PROCESSING_HTTP_TIMEOUT_SECONDS": float(os.getenv("PROCESSING_HTTP_TIMEOUT_SECONDS", "30")),
+    "HTTP_PORT": int(os.getenv("HTTP_PORT", "8000")),
     "VALKEY_HOST": os.getenv("VALKEY_HOST", "host.docker.internal"),
     "VALKEY_PORT": int(os.getenv("VALKEY_PORT", "6379")),
     "HF_CACHE": pathlib.Path(os.environ.get("HF_HOME", pathlib.Path.home() / ".hf_models")),
@@ -125,6 +127,7 @@ app_state.redis_client = _create_redis_client(app_state.config)
 app_state.operation_queue = OperationQueue(app_state.redis_client)
 app_state.operation_worker = OperationWorker(app_state.operation_queue, app_state)
 app_state.operation_worker_task = None
+app_state.grpc_server = None
 
 
 def _extract_items_and_queue(payload):
@@ -376,6 +379,9 @@ def root():
 
 @app.on_event("startup")
 async def start_processing_loop():
+    if app_state.grpc_server is None:
+        app_state.grpc_server = await start_grpc_server(app_state.operation_queue)
+
     if app_state.operation_worker_task is None or app_state.operation_worker_task.done():
         app_state.operation_worker_task = asyncio.create_task(app_state.operation_worker.run_forever())
 
@@ -385,6 +391,9 @@ async def start_processing_loop():
 
 @app.on_event("shutdown")
 async def stop_processing_loop():
+    if app_state.grpc_server is not None:
+        await app_state.grpc_server.stop(grace=5)
+
     operation_task = app_state.operation_worker_task
     if operation_task and not operation_task.done():
         operation_task.cancel()
@@ -406,4 +415,4 @@ async def stop_processing_loop():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=app_state.config["HTTP_PORT"])

@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package mistify.operations;
+
+import "google/protobuf/struct.proto";
+
+service MistifyOperations {
+  rpc AnalyzePost (AnalyzePostRequest) returns (EnqueueAnalysisResponse);
+  rpc AnalyzePosts (AnalyzePostsRequest) returns (EnqueueAnalysisResponse);
+  rpc DetectLanguage (DetectLanguageRequest) returns (EnqueueAnalysisResponse);
+  rpc ClassifyContent (ClassifyContentRequest) returns (EnqueueAnalysisResponse);
+  rpc TranslateText (TranslateTextRequest) returns (EnqueueAnalysisResponse);
+  rpc EmbedText (EmbedTextRequest) returns (EnqueueAnalysisResponse);
+  rpc ClusterPost (ClusterPostRequest) returns (EnqueueAnalysisResponse);
+  rpc GenerateText (GenerateTextRequest) returns (EnqueueAnalysisResponse);
+}
+
+message HttpCallback {
+  string url = 1;
+  map<string, string> headers = 2;
+}
+
+message OperationContext {
+  string service = 1;
+  string tenant = 2;
+  string request_id = 3;
+  string trace_id = 4;
+}
+
+message AnalyzePostRequest {
+  google.protobuf.Struct post = 1;
+  string idempotency_key = 2;
+  OperationContext context = 3;
+  google.protobuf.Struct metadata = 4;
+  HttpCallback callback = 5;
+}
+
+message AnalyzePostsRequest {
+  repeated google.protobuf.Struct posts = 1;
+  string idempotency_key = 2;
+  OperationContext context = 3;
+  google.protobuf.Struct metadata = 4;
+  HttpCallback callback = 5;
+}
+
+message DetectLanguageRequest {
+  string text = 1;
+  int32 k = 2;
+  string idempotency_key = 3;
+  OperationContext context = 4;
+  google.protobuf.Struct metadata = 5;
+  HttpCallback callback = 6;
+}
+
+message ClassifyContentRequest {
+  string text = 1;
+  repeated string labels = 2;
+  string idempotency_key = 3;
+  OperationContext context = 4;
+  google.protobuf.Struct metadata = 5;
+  HttpCallback callback = 6;
+}
+
+message TranslateTextRequest {
+  string text = 1;
+  string source_language = 2;
+  string target_language = 3;
+  string idempotency_key = 4;
+  OperationContext context = 5;
+  google.protobuf.Struct metadata = 6;
+  HttpCallback callback = 7;
+}
+
+message EmbedTextRequest {
+  string content = 1;
+  string idempotency_key = 2;
+  OperationContext context = 3;
+  google.protobuf.Struct metadata = 4;
+  HttpCallback callback = 5;
+}
+
+message ClusterPostRequest {
+  google.protobuf.Struct post = 1;
+  string idempotency_key = 2;
+  OperationContext context = 3;
+  google.protobuf.Struct metadata = 4;
+  HttpCallback callback = 5;
+}
+
+message GenerateTextRequest {
+  string prompt = 1;
+  int32 max_new_tokens = 2;
+  int32 min_new_tokens = 3;
+  int32 num_beams = 4;
+  double temperature = 5;
+  bool do_sample = 6;
+  int32 no_repeat_ngram_size = 7;
+  double length_penalty = 8;
+  string idempotency_key = 9;
+  OperationContext context = 10;
+  google.protobuf.Struct metadata = 11;
+  HttpCallback callback = 12;
+}
+
+message EnqueueAnalysisResponse {
+  string operation_id = 1;
+  bool queued = 2;
+}

@@ -87,11 +87,14 @@ jobs:
             # Generate a UUID for awslogs-stream
             LOG_STREAM_UUID=$(uuidgen)
 
-            # Run the new container on port 8000 with GPU support
+            # Run the new container with GPU support
             docker run -d --name mistify \
-              -p 8000:8000 \
+              -p ${{ vars.HTTP_PORT }}:${{ vars.HTTP_PORT }} \
+              -p ${{ vars.GRPC_PORT }}:${{ vars.GRPC_PORT }} \
               --gpus all \
               --restart=always \
+              -e HTTP_PORT=${{ vars.HTTP_PORT }} \
+              -e GRPC_PORT=${{ vars.GRPC_PORT }} \
               -e VALKEY_HOST=${{ vars.VALKEY_HOST }} \
               -e VALKEY_PORT=${{ vars.VALKEY_PORT }} \
               -v mistify-cache:/home/appuser/.cache \

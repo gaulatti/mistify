@@ -6,8 +6,16 @@ from typing import Any, Dict, List, Optional
 import httpx
 from pydantic import ValidationError
 
-from src.endpoints import analysis
-from src.models import UnifiedAnalysisRequest
+from src.endpoints import analysis, classification, clustering, embedding, generation, language, translation
+from src.models import (
+    ClassificationRequest,
+    EmbeddingItem,
+    LanguageDetectionRequest,
+    PostData,
+    TextGenerationRequest,
+    TranslationRequest,
+    UnifiedAnalysisRequest,
+)
 from src.operations.models import OperationEnvelope, QueuedOperation
 from src.operations.queue import OperationQueue
 
@@ -64,12 +72,26 @@ class OperationWorker:
     async def _run_operation(self, envelope: OperationEnvelope) -> Dict[str, Any]:
         if envelope.operation_type in {"analyze_post", "analyze_posts"}:
             return await self._analyze_posts(envelope)
+        if envelope.operation_type == "detect_language":
+            return await self._detect_language(envelope)
+        if envelope.operation_type == "classify_content":
+            return await self._classify_content(envelope)
+        if envelope.operation_type == "translate_text":
+            return await self._translate_text(envelope)
+        if envelope.operation_type == "embed_text":
+            return await self._embed_text(envelope)
+        if envelope.operation_type == "cluster_post":
+            return await self._cluster_post(envelope)
+        if envelope.operation_type == "generate_text":
+            return await self._generate_text(envelope)
 
         raise ValueError(f"Unsupported operation_type: {envelope.operation_type}")
 
+    def _request(self):
+        return SimpleNamespace(state=SimpleNamespace(app_state=self.app_state))
+
     async def _analyze_posts(self, envelope: OperationEnvelope) -> Dict[str, Any]:
         items = self._extract_items(envelope.payload)
-        request = SimpleNamespace(state=SimpleNamespace(app_state=self.app_state))
 
         try:
             analysis_request = UnifiedAnalysisRequest(
@@ -79,10 +101,51 @@ class OperationWorker:
         except ValidationError as exc:
             raise ValueError(f"Invalid analyze payload: {exc}") from exc
 
-        response = await analysis.unified_analysis(analysis_request, request)
+        response = await analysis.unified_analysis(analysis_request, self._request())
         return {
             "items": self._merge_processed_items(items, response),
         }
+
+    async def _detect_language(self, envelope: OperationEnvelope) -> Dict[str, Any]:
+        response = await language.detect_language(
+            LanguageDetectionRequest(**envelope.payload),
+            self._request(),
+        )
+        return response.model_dump()
+
+    async def _classify_content(self, envelope: OperationEnvelope) -> Dict[str, Any]:
+        response = await classification.classify_content(
+            ClassificationRequest(**envelope.payload),
+            self._request(),
+        )
+        return response.model_dump()
+
+    async def _translate_text(self, envelope: OperationEnvelope) -> Dict[str, Any]:
+        response = await translation.translate_text(
+            TranslationRequest(**envelope.payload),
+            self._request(),
+        )
+        return response.model_dump()
+
+    async def _embed_text(self, envelope: OperationEnvelope) -> Dict[str, Any]:
+        return await embedding.embed_items(
+            EmbeddingItem(**envelope.payload),
+            self._request(),
+        )
+
+    async def _cluster_post(self, envelope: OperationEnvelope) -> Dict[str, Any]:
+        response = await clustering.cluster_texts(
+            PostData.model_validate(envelope.payload),
+            self._request(),
+        )
+        return response.model_dump()
+
+    async def _generate_text(self, envelope: OperationEnvelope) -> Dict[str, Any]:
+        response = await generation.generate_text(
+            TextGenerationRequest(**envelope.payload),
+            self._request(),
+        )
+        return response.model_dump()
 
     def _extract_items(self, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
         if isinstance(payload.get("items"), list):
@@ -152,6 +215,7 @@ class OperationWorker:
             "operationType": envelope.operation_type,
             "status": status,
             "idempotencyKey": envelope.idempotency_key,
+            "context": envelope.context.model_dump(),
             "metadata": envelope.metadata,
             "result": result,
             "error": error,

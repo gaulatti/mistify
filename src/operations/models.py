@@ -26,10 +26,18 @@ class OperationOptions(BaseModel):
     store_result: bool = True
 
 
+class OperationContext(BaseModel):
+    service: str = ""
+    tenant: str = ""
+    request_id: str = ""
+    trace_id: str = ""
+
+
 class OperationEnvelope(BaseModel):
     operation_id: str = Field(default_factory=lambda: f"op_{uuid4().hex}")
     operation_type: str
     payload: Dict[str, Any]
+    context: OperationContext = Field(default_factory=OperationContext)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     callback: Optional[HttpCallback] = None
     options: OperationOptions = Field(default_factory=OperationOptions)
@@ -49,4 +57,3 @@ class QueuedOperation(BaseModel):
     envelope: OperationEnvelope
     queued_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     attempts: int = 0
-

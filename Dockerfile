@@ -13,4 +13,4 @@ COPY --chown=appuser:appuser src ./src
 USER appuser
 
 # Run from /app with proper package structure
-CMD ["uvicorn", "src.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "src.server"]
