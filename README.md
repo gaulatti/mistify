@@ -59,7 +59,7 @@ For detailed metrics documentation and example queries, see [METRICS.md](METRICS
 2.  **Install dependencies:**
 
     ```bash
-    pip install -r requirements.txt
+    uv sync --frozen
     ```
 
     The required models will be downloaded automatically on first use. For a full offline installation, please refer to the [documentation on the wiki](https://github.com/gaulatti/mistify/wiki).
@@ -84,7 +84,7 @@ The easiest way to run Mistify is with Docker. The Docker build pre-downloads al
 You can also run the FastAPI server directly with Uvicorn.
 
 ```bash
-uvicorn src.server:app --host 0.0.0.0 --port 8000
+uv run uvicorn src.server:app --host 0.0.0.0 --port 8000
 ```
 
 ## Configuration

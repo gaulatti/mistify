@@ -12,8 +12,10 @@ ENV MIN_MARGIN=0.10
 WORKDIR /app
 
 # Copy and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org -r requirements.txt
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY pyproject.toml uv.lock ./
+RUN uv export --format requirements-txt --no-dev --frozen --no-hashes \
+    | uv pip sync --system --no-cache -
 
 # Download SpaCy English model
 RUN python -m spacy download en_core_web_sm

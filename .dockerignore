@@ -1,1 +1,9 @@
 infrastructure/
+.env
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.hf_models/
+.cache/

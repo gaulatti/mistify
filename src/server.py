@@ -28,10 +28,12 @@ import warnings
 import pathlib
 import time
 import httpx
+from redis.asyncio import Redis
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import Response
 from types import SimpleNamespace
+from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -41,7 +43,11 @@ from src.endpoints import (
     language, classification, translation, embedding, clustering, analysis, generation
 )
 from src.models import UnifiedAnalysisRequest
+from src.operations.queue import OperationQueue
+from src.operations.worker import OperationWorker
 from src import metrics
+
+load_dotenv()
 
 # Suppress transformers deprecation warnings
 warnings.filterwarnings("ignore", message="transformers.deepspeed module is deprecated")
@@ -79,12 +85,13 @@ app_state.config = {
     "MIN_MARGIN": float(os.getenv("MIN_MARGIN", "0.10")),
     "POOL_WORKERS": int(os.getenv("POOL_WORKERS", "4")),
     "TIMEOUT": int(os.getenv("TIMEOUT", "10")),
-    "PROCESSING_LOOP_ENABLED": os.getenv("PROCESSING_LOOP_ENABLED", "true").lower() in {"1", "true", "yes"},
     "PROCESSING_TRANSLATE_TO_ENGLISH": os.getenv("PROCESSING_TRANSLATE_TO_ENGLISH", "true").lower() in {"1", "true", "yes"},
     "PROCESSING_FETCH_URL": os.getenv("PROCESSING_FETCH_URL", "https://api.cronkite.fifthbell.com/processing/fetch"),
     "PROCESSING_POST_URL": os.getenv("PROCESSING_POST_URL", "https://n8n.gaulatti.com/webhook/727a2ba4-a274-462c-91cc-8d2abc7bb81e"),
     "PROCESSING_IDLE_SLEEP_SECONDS": float(os.getenv("PROCESSING_IDLE_SLEEP_SECONDS", "5")),
     "PROCESSING_HTTP_TIMEOUT_SECONDS": float(os.getenv("PROCESSING_HTTP_TIMEOUT_SECONDS", "30")),
+    "VALKEY_HOST": os.getenv("VALKEY_HOST", "host.docker.internal"),
+    "VALKEY_PORT": int(os.getenv("VALKEY_PORT", "6379")),
     "HF_CACHE": pathlib.Path(os.environ.get("HF_HOME", pathlib.Path.home() / ".hf_models")),
 }
 app_state.config["HF_CACHE"].mkdir(parents=True, exist_ok=True)
@@ -104,6 +111,20 @@ app_state.translation_lock = asyncio.Lock()
 app_state.clustering_lock = asyncio.Lock()
 app_state.thread_pool = ThreadPoolExecutor(max_workers=app_state.config["POOL_WORKERS"])
 app_state.processing_loop_task = None
+
+
+def _create_redis_client(config):
+    return Redis(
+        host=config["VALKEY_HOST"],
+        port=config["VALKEY_PORT"],
+        decode_responses=True,
+    )
+
+
+app_state.redis_client = _create_redis_client(app_state.config)
+app_state.operation_queue = OperationQueue(app_state.redis_client)
+app_state.operation_worker = OperationWorker(app_state.operation_queue, app_state)
+app_state.operation_worker_task = None
 
 
 def _extract_items_and_queue(payload):
@@ -335,9 +356,11 @@ def root():
         "version": "1.3.0",
         "capabilities": ["language_detection", "content_classification", "translation", "text_clustering", "text_generation"],
         "background_processing_loop": {
-            "enabled": app_state.config["PROCESSING_LOOP_ENABLED"],
             "fetch_url": app_state.config["PROCESSING_FETCH_URL"],
             "post_url": app_state.config["PROCESSING_POST_URL"],
+        },
+        "operation_queue": {
+            "queue_name": app_state.operation_queue.queue_name,
         },
         "endpoints": {
             "language_detection": "/detect",
@@ -353,9 +376,8 @@ def root():
 
 @app.on_event("startup")
 async def start_processing_loop():
-    if not app_state.config.get("PROCESSING_LOOP_ENABLED"):
-        logger.info("⏸️ Processing loop disabled by config")
-        return
+    if app_state.operation_worker_task is None or app_state.operation_worker_task.done():
+        app_state.operation_worker_task = asyncio.create_task(app_state.operation_worker.run_forever())
 
     if app_state.processing_loop_task is None or app_state.processing_loop_task.done():
         app_state.processing_loop_task = asyncio.create_task(_processing_loop())
@@ -363,6 +385,14 @@ async def start_processing_loop():
 
 @app.on_event("shutdown")
 async def stop_processing_loop():
+    operation_task = app_state.operation_worker_task
+    if operation_task and not operation_task.done():
+        operation_task.cancel()
+        try:
+            await operation_task
+        except asyncio.CancelledError:
+            pass
+
     task = app_state.processing_loop_task
     if task and not task.done():
         task.cancel()
@@ -370,6 +400,7 @@ async def stop_processing_loop():
             await task
         except asyncio.CancelledError:
             pass
+    await app_state.redis_client.aclose()
 
 
 if __name__ == "__main__":

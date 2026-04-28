@@ -21,8 +21,8 @@ jobs:
       - name: Check if base files changed
         id: check
         run: |
-          # Check if Dockerfile.base or requirements.txt changed in this push
-          BASE_CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^(Dockerfile\.base|requirements\.txt)$' || echo "")
+          # Check if Dockerfile.base or uv dependency files changed in this push
+          BASE_CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -E '^(Dockerfile\.base|pyproject\.toml|uv\.lock)$' || echo "")
           if [ -n "$BASE_CHANGED" ]; then
             echo "base-changed=true" >> $GITHUB_OUTPUT
             echo "Base files changed: $BASE_CHANGED"
@@ -92,6 +92,8 @@ jobs:
               -p 8000:8000 \
               --gpus all \
               --restart=always \
+              -e VALKEY_HOST=${{ vars.VALKEY_HOST }} \
+              -e VALKEY_PORT=${{ vars.VALKEY_PORT }} \
               -v mistify-cache:/home/appuser/.cache \
               -v mistify-models:/home/appuser/.hf_models \
               --log-driver=awslogs \
