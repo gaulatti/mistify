@@ -186,14 +186,22 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
         "en": "eng", "es": "spa", "fr": "fra", "de": "deu", "it": "ita",
         "pt": "por", "ru": "rus", "zh": "cmn", "ja": "jpn", "ko": "kor",
         "ar": "arb", "hi": "hin", "tr": "tur", "pl": "pol", "nl": "nld",
-        "he": "heb", "sv": "swe", "da": "dan", "no": "nor", "fi": "fin"
+        "he": "heb", "sv": "swe", "da": "dan", "no": "nor", "fi": "fin",
+        "fa": "pes", "ur": "urd", "id": "ind", "vi": "vie", "th": "tha",
+        "uk": "ukr", "cs": "ces", "ro": "ron", "hu": "hun", "el": "ell",
+        "bg": "bul", "sr": "srp", "hr": "hrv", "sk": "slk", "sl": "slv",
+        "et": "est", "lv": "lvs", "lt": "lit"
     }
 
     standard_lang_mapping = {
         "en": "en", "es": "es", "fr": "fr", "de": "de", "it": "it",
         "pt": "pt", "ru": "ru", "zh": "zh", "ja": "ja", "ko": "ko",
         "ar": "ar", "hi": "hi", "tr": "tr", "pl": "pl", "nl": "nl",
-        "he": "he", "sv": "sv", "da": "da", "no": "no", "fi": "fi"
+        "he": "he", "sv": "sv", "da": "da", "no": "no", "fi": "fi",
+        "fa": "fa", "ur": "ur", "id": "id", "vi": "vi", "th": "th",
+        "uk": "uk", "cs": "cs", "ro": "ro", "hu": "hu", "el": "el",
+        "bg": "bg", "sr": "sr", "hr": "hr", "sk": "sk", "sl": "sl",
+        "et": "et", "lv": "lv", "lt": "lt"
     }
 
     def _attempt_translation(text_to_translate, attempt_name=""):
