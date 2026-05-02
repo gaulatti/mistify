@@ -204,6 +204,54 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
         "et": "et", "lv": "lv", "lt": "lt"
     }
 
+    lang_aliases = {
+        "jp": "ja", "jpn": "ja", "japanese": "ja",
+        "fas": "fa", "per": "fa", "pes": "fa", "farsi": "fa", "persian": "fa",
+        "iw": "he", "heb": "he", "hebrew": "he",
+        "zh-cn": "zh", "zh-tw": "zh", "cmn": "zh", "chi": "zh", "zho": "zh", "chinese": "zh",
+        "eng": "en", "english": "en",
+        "spa": "es", "spanish": "es",
+        "fra": "fr", "fre": "fr", "french": "fr",
+        "deu": "de", "ger": "de", "german": "de",
+        "arb": "ar", "ara": "ar", "arabic": "ar",
+    }
+
+    def _clean_language_code(lang: Optional[str]) -> Optional[str]:
+        if not lang:
+            return None
+
+        cleaned = str(lang).strip().lower()
+        if not cleaned:
+            return None
+
+        cleaned = cleaned.replace("__label__", "")
+        cleaned = cleaned.split(".", 1)[0]
+        cleaned = cleaned.replace("_", "-")
+
+        if cleaned in lang_aliases:
+            return lang_aliases[cleaned]
+
+        base = cleaned.split("-", 1)[0]
+        return lang_aliases.get(base, base)
+
+    def _map_language(lang: Optional[str], mapping: Dict[str, str], default: str) -> str:
+        normalized = _clean_language_code(lang)
+        if not normalized:
+            return default
+        return mapping.get(normalized, normalized if len(normalized) == 3 else default)
+
+    def _seamless_generation_kwargs(text_to_translate: str) -> Dict:
+        word_tokens = len(text_to_translate.split())
+        char_tokens = max(1, len(text_to_translate) // 2)
+        approx_tokens = max(word_tokens, char_tokens)
+        return {
+            "max_new_tokens": max(96, min(384, int(approx_tokens * 2.0))),
+            "num_beams": 4,
+            "do_sample": False,
+            "early_stopping": True,
+            "length_penalty": 1.0,
+        }
+
     def _attempt_translation(text_to_translate, attempt_name=""):
         """Helper function to attempt translation with proper error handling"""
         try:
@@ -212,15 +260,19 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
 
             if is_seamless:
                 # Seamless M4T requires both src_lang and tgt_lang
-                if source_lang:
-                    mapped_source = seamless_lang_mapping.get(source_lang[:2].lower(), "eng")
-                else:
-                    mapped_source = "eng"
+                mapped_source = _map_language(source_lang, seamless_lang_mapping, "eng")
+                mapped_target = _map_language(target_lang, seamless_lang_mapping, "eng")
 
                 # For Seamless M4T pipeline, use generation parameters
                 input_tokens = len(text_to_translate.split())
 
-                logger.info(f"Text: {text_to_translate}, Seamless translation: {mapped_source} -> eng, input_tokens: {input_tokens}")
+                logger.info(
+                    "Seamless translation: %s -> %s, input_words=%d, chars=%d",
+                    mapped_source,
+                    mapped_target,
+                    input_tokens,
+                    len(text_to_translate),
+                )
 
                 # Seamless M4T v2 proper usage with processor and model.generate()
                 try:
@@ -243,21 +295,12 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                             if isinstance(v, torch.Tensor):
                                 text_inputs[k] = v.to(model_device)
 
-                        # Use requested target language (fallback to English if not provided)
-                        mapped_target = target_lang if target_lang else "eng"
-                        # Safety: ensure target code is 3-letter for Seamless, map if needed
-                        if len(mapped_target) == 2:
-                            mapped_target = seamless_lang_mapping.get(mapped_target, "eng")
-
-                        # Compute a dynamic generation cap (avoid conflicting max_length / max_new_tokens)
-                        # Heuristic: up to 1.5x input tokens, bounded [64, 256]
-                        approx_in_tokens = input_tokens
-                        dyn_max_new = max(64, min(256, int(approx_in_tokens * 1.5) if approx_in_tokens else 128))
-                        logger.debug(f"Seamless generation using max_new_tokens={dyn_max_new} (input_tokens={approx_in_tokens})")
+                        generation_kwargs = _seamless_generation_kwargs(text_to_translate)
+                        logger.debug("Seamless generation parameters: %s", generation_kwargs)
                         generated_tokens = model.generate(
                             **text_inputs,
                             tgt_lang=mapped_target,
-                            max_new_tokens=dyn_max_new
+                            **generation_kwargs,
                         )
                         try:
                             gen_device = generated_tokens.device
@@ -274,25 +317,16 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                         result = [{"translation_text": decoded}]
                     else:
                         # Fallback: use pipeline call directly
-                        mapped_target = target_lang if target_lang else "eng"
-                        if len(mapped_target) == 2:
-                            mapped_target = seamless_lang_mapping.get(mapped_target, "eng")
-                        # Use same dynamic new token cap for pipeline fallback
-                        approx_in_tokens = input_tokens
-                        dyn_max_new = max(64, min(256, int(approx_in_tokens * 1.5) if approx_in_tokens else 128))
                         result = translator(
                             text_to_translate,
                             src_lang=mapped_source,
                             tgt_lang=mapped_target,
-                            max_new_tokens=dyn_max_new
+                            **_seamless_generation_kwargs(text_to_translate),
                         )
                 except Exception as e1:
                     logger.warning(f"Direct model approach failed: {e1}")
                     try:
                         # Second attempt: pipeline interface (might differ after HF updates)
-                        mapped_target = target_lang if target_lang else "eng"
-                        if len(mapped_target) == 2:
-                            mapped_target = seamless_lang_mapping.get(mapped_target, "eng")
                         result = translator(text_to_translate, src_lang=mapped_source, tgt_lang=mapped_target)
                     except Exception as e2:
                         logger.warning(f"Pipeline with languages failed: {e2}")
@@ -311,7 +345,7 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                 }
 
                 if source_lang:
-                    mapped_source = standard_lang_mapping.get(source_lang[:2].lower(), source_lang)
+                    mapped_source = _map_language(source_lang, standard_lang_mapping, source_lang)
                     if model_name and "helsinki" in model_name.lower():
                         result = translator(text_to_translate, **translation_params)
                     else:
@@ -391,7 +425,7 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
         minimal_text = " ".join(words[:80])
 
         if is_seamless:
-            fallback_source = seamless_lang_mapping.get(source_lang[:2].lower() if source_lang else "en", "eng")
+            fallback_source = _map_language(source_lang, seamless_lang_mapping, "eng")
             result = translator(
                 minimal_text,
                 src_lang=fallback_source,

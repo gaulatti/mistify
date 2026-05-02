@@ -19,6 +19,22 @@ async def translate_text(req: TranslationRequest, http_request: Request):
 
     # Track translation request
     metrics.POSTS_PROCESSED_TOTAL.labels(endpoint="translate").inc()
+    source_language = req.source_language
+
+    if not source_language and app_state.fasttext_model is not None:
+        try:
+            cleaned_text = ' '.join(req.text.replace('\n', ' ').replace('\r', ' ').strip().split())
+            if cleaned_text:
+                labels, probs = app_state.fasttext_model.predict(cleaned_text, k=1)
+                if labels:
+                    source_language = labels[0].replace("__label__", "")
+                    logger.info(
+                        "Detected source language for translation: %s (confidence=%.4f)",
+                        source_language,
+                        float(probs[0]) if len(probs) else 0.0,
+                    )
+        except Exception as e:
+            logger.warning("Source language detection before translation failed: %s", e)
 
     with metrics.record_operation("translate"):
         queue_wait_start = time.perf_counter()
@@ -36,7 +52,7 @@ async def translate_text(req: TranslationRequest, http_request: Request):
                         _translate_sync,
                         app_state.translator,
                         req.text,
-                        req.source_language,
+                        source_language,
                         req.target_language,
                         getattr(app_state, 'translator_model_name', None)
                     ),
@@ -84,7 +100,7 @@ async def translate_text(req: TranslationRequest, http_request: Request):
             return TranslationResponse(
                 original_text=req.text,
                 translated_text=translated_text,
-                source_language=req.source_language,
+                source_language=source_language,
                 target_language=req.target_language
             )
         except Exception as e:
