@@ -183,14 +183,42 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
 
     # Language code mappings
     seamless_lang_mapping = {
-        "en": "eng", "es": "spa", "fr": "fra", "de": "deu", "it": "ita",
-        "pt": "por", "ru": "rus", "zh": "cmn", "ja": "jpn", "ko": "kor",
-        "ar": "arb", "hi": "hin", "tr": "tur", "pl": "pol", "nl": "nld",
-        "he": "heb", "sv": "swe", "da": "dan", "no": "nor", "fi": "fin",
-        "fa": "pes", "ur": "urd", "id": "ind", "vi": "vie", "th": "tha",
-        "uk": "ukr", "cs": "ces", "ro": "ron", "hu": "hun", "el": "ell",
-        "bg": "bul", "sr": "srp", "hr": "hrv", "sk": "slk", "sl": "slv",
-        "et": "est", "lv": "lvs", "lt": "lit"
+        "af": "afr", "am": "amh", "ar": "arb", "arz": "arz", "as": "asm",
+        "az": "azj", "be": "bel", "bg": "bul", "bn": "ben", "bs": "bos",
+        "ca": "cat", "ceb": "ceb", "cs": "ces", "cy": "cym", "da": "dan",
+        "de": "deu", "el": "ell", "en": "eng", "es": "spa", "et": "est",
+        "eu": "eus", "fa": "pes", "ff": "fuv", "fr": "fra", "ga": "gle",
+        "gl": "glg", "gu": "guj", "he": "heb", "hi": "hin", "hr": "hrv",
+        "hu": "hun", "hy": "hye", "id": "ind", "ig": "ibo", "is": "isl",
+        "it": "ita", "ja": "jpn", "jv": "jav", "ka": "kat", "kk": "kaz",
+        "km": "khm", "kn": "kan", "ko": "kor", "ky": "kir", "lo": "lao",
+        "lt": "lit", "lv": "lvs", "mk": "mkd", "ml": "mal", "mn": "khk",
+        "mr": "mar", "ms": "zlm", "mt": "mlt", "my": "mya", "ne": "npi",
+        "nl": "nld", "nn": "nno", "no": "nob", "ny": "nya", "or": "ory",
+        "pa": "pan", "pl": "pol", "ps": "pbt", "pt": "por", "ro": "ron",
+        "ru": "rus", "sd": "snd", "sk": "slk", "sl": "slv", "sn": "sna",
+        "so": "som", "sr": "srp", "sv": "swe", "sw": "swh", "ta": "tam",
+        "te": "tel", "tg": "tgk", "th": "tha", "tl": "tgl", "tr": "tur",
+        "uk": "ukr", "ur": "urd", "uz": "uzn", "vi": "vie", "yo": "yor",
+        "zh": "cmn", "zu": "zul",
+        "afr": "afr", "amh": "amh", "arb": "arb", "ary": "ary", "asm": "asm",
+        "azj": "azj", "bel": "bel", "ben": "ben", "bos": "bos", "bul": "bul",
+        "cat": "cat", "ces": "ces", "ckb": "ckb", "cmn": "cmn", "cmn-hant": "cmn_Hant",
+        "cym": "cym", "deu": "deu", "ell": "ell", "eng": "eng", "est": "est",
+        "eus": "eus", "fuv": "fuv", "gaz": "gaz", "gle": "gle", "glg": "glg",
+        "guj": "guj", "heb": "heb", "hin": "hin", "hrv": "hrv", "hun": "hun",
+        "hye": "hye", "ibo": "ibo", "ind": "ind", "isl": "isl", "jav": "jav",
+        "jpn": "jpn", "kan": "kan", "kat": "kat", "kaz": "kaz", "khk": "khk",
+        "khm": "khm", "kir": "kir", "lao": "lao", "lug": "lug", "luo": "luo",
+        "mai": "mai", "mal": "mal", "mar": "mar", "mkd": "mkd", "mlt": "mlt",
+        "mni": "mni", "mya": "mya", "nld": "nld", "nno": "nno", "nob": "nob",
+        "npi": "npi", "ory": "ory", "pan": "pan", "pbt": "pbt", "pes": "pes",
+        "pol": "pol", "por": "por", "ron": "ron", "rus": "rus", "sat": "sat",
+        "slk": "slk", "slv": "slv", "sna": "sna", "snd": "snd", "som": "som",
+        "spa": "spa", "srp": "srp", "swe": "swe", "swh": "swh", "tam": "tam",
+        "tel": "tel", "tgk": "tgk", "tgl": "tgl", "ukr": "ukr", "urd": "urd",
+        "uzn": "uzn", "vie": "vie", "yor": "yor", "yue": "yue", "zlm": "zlm",
+        "zul": "zul"
     }
 
     standard_lang_mapping = {
@@ -208,12 +236,13 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
         "jp": "ja", "jpn": "ja", "japanese": "ja",
         "fas": "fa", "per": "fa", "pes": "fa", "farsi": "fa", "persian": "fa",
         "iw": "he", "heb": "he", "hebrew": "he",
-        "zh-cn": "zh", "zh-tw": "zh", "cmn": "zh", "chi": "zh", "zho": "zh", "chinese": "zh",
+        "zh-cn": "zh", "zh-tw": "cmn-hant", "cmn": "zh", "chi": "zh", "zho": "zh", "chinese": "zh",
         "eng": "en", "english": "en",
         "spa": "es", "spanish": "es",
         "fra": "fr", "fre": "fr", "french": "fr",
         "deu": "de", "ger": "de", "german": "de",
         "arb": "ar", "ara": "ar", "arabic": "ar",
+        "ast": "es", "lim": "nl", "vec": "it",
     }
 
     def _clean_language_code(lang: Optional[str]) -> Optional[str]:
@@ -238,7 +267,7 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
         normalized = _clean_language_code(lang)
         if not normalized:
             return default
-        return mapping.get(normalized, normalized if len(normalized) == 3 else default)
+        return mapping.get(normalized, default)
 
     def _seamless_generation_kwargs(text_to_translate: str) -> Dict:
         word_tokens = len(text_to_translate.split())

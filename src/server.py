@@ -30,6 +30,7 @@ import time
 import httpx
 from redis.asyncio import Redis
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import Response
 from types import SimpleNamespace
@@ -57,6 +58,7 @@ warnings.filterwarnings("ignore", message="You must either specify a `tgt_lang`"
 warnings.filterwarnings("ignore", message="Both `max_new_tokens`.*and `max_length`.*seem to have been set")
 warnings.filterwarnings("ignore", message="Your input_length.*is bigger than.*max_length")
 warnings.filterwarnings("ignore", message="Setting `pad_token_id`.*to `eos_token_id`")
+warnings.filterwarnings("ignore", message="`resume_download` is deprecated.*", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
 
 # ---- Logging Setup -------------------------------------------------------------
@@ -67,11 +69,22 @@ logger = logging.getLogger("mistify")
 torch.set_num_threads(1)
 torch.set_num_interop_threads(1)
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await start_processing_loop()
+    try:
+        yield
+    finally:
+        await stop_processing_loop()
+
+
 # ---- FastAPI App ---------------------------------------------------------------
 app = FastAPI(
     title="Mistify",
     description="Language detection, content classification, translation, sentence embeddings, and entity-aware clustering",
-    version="1.3.0"
+    version="1.3.0",
+    lifespan=lifespan,
 )
 
 # ---- App State -----------------------------------------------------------------
@@ -377,7 +390,6 @@ def root():
     }
 
 
-@app.on_event("startup")
 async def start_processing_loop():
     if app_state.grpc_server is None:
         app_state.grpc_server = await start_grpc_server(app_state.operation_queue)
@@ -389,7 +401,6 @@ async def start_processing_loop():
         app_state.processing_loop_task = asyncio.create_task(_processing_loop())
 
 
-@app.on_event("shutdown")
 async def stop_processing_loop():
     if app_state.grpc_server is not None:
         await app_state.grpc_server.stop(grace=5)
