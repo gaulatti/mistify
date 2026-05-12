@@ -87,8 +87,26 @@ The easiest way to run Mistify is with Docker. The Docker build pre-downloads al
 
 2.  **Run the container:**
     ```bash
-    docker run --memory=12g -p 8000:8000 -p 50000:50000 mistify-service
+    docker run --memory=12g -e HTTP_PORT=$HTTP_PORT -p $HTTP_PORT:$HTTP_PORT -p $GRPC_PORT:$GRPC_PORT mistify-service
     ```
+
+### Running with Docker Compose (Watch)
+
+For local development with automatic syncing/rebuilds:
+
+1. **Start the service:**
+
+    ```bash
+    docker compose up --build
+    ```
+
+2. **In another terminal, start watch mode:**
+
+    ```bash
+    docker compose watch
+    ```
+
+The API will be available on `http://localhost:$HTTP_PORT`.
 
 ### Running Locally
 
@@ -106,3 +124,9 @@ Configure the service using the following environment variables:
 - `MIN_SCORE`: Minimum confidence score for classification (default: `0.30`)
 - `MIN_MARGIN`: Minimum margin between top two scores (default: `0.10`)
 - `TRANSFORMERS_OFFLINE`: Set to `1` to enforce offline mode for Hugging Face models (default in Docker).
+- `HTTP_PORT`: HTTP server port used by FastAPI and Docker/Compose port mapping.
+- `GRPC_PORT`: gRPC published port used by Docker/Compose mapping (default service listener is `50000`).
+- `DOCKER_PLATFORM`: Optional Docker platform override for Compose builds/runs (default: `linux/amd64`). Useful on Apple Silicon when base images are amd64-only.
+- `LOAD_MODELS_ON_STARTUP`: Set to `false` to start the API without eagerly loading models (fast boot; model-backed endpoints can return `503` until models are loaded by your runtime strategy).
+- `TRANSLATION_ENABLED`: Set to `false` to skip loading translation models at startup (faster boot; `/translate` and translation in `/analyze` will return fallback/unavailable behavior).
+- `TEXT_GENERATION_ENABLED`: Set to `false` to skip loading the text generation model at startup (faster boot; `/generate/text` will return 503).

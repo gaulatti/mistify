@@ -36,5 +36,3 @@ RUN mkdir -p /home/appuser/.cache/huggingface/hub \
 ENV HF_HOME=/home/appuser/.hf_models
 
 USER appuser
-
-EXPOSE 8000

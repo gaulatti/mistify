@@ -75,51 +75,56 @@ def initialize_models(config):
         logger.error("❌ Failed to load BART classification model: %s", e)
 
     # Translator
+    translation_enabled = os.getenv("TRANSLATION_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
     translator = None
     translator_model_name = None
-    try:
-        logger.info("🔧 Loading Seamless M4T v2 translation model...")
-        # Configure Seamless M4T v2 with better parameters
-        translator = pipeline(
-            "translation",
-            model="facebook/seamless-m4t-v2-large",
-            device=device_id,
-            trust_remote_code=True,
-            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-            model_kwargs={
-                "low_cpu_mem_usage": True,
-                "use_safetensors": True,
-            } if device == "cuda" else {},
-            cache_dir=str(config["HF_CACHE"])
-        )
-        translator_model_name = "seamless-m4t-v2"
-        # Force move model to target device (sometimes pipeline keeps parts on CPU)
+    if not translation_enabled:
+        translator_model_name = "none"
+        logger.info("⏭️ Skipping translation model initialization (TRANSLATION_ENABLED=false)")
+    else:
         try:
-            if hasattr(translator, 'model'):
-                model_device = torch.device(device if device != 'cuda' else f'cuda:{device_id}')
-                translator.model.to(model_device)
-                # Log a sample parameter device
-                sample_param_device = next(translator.model.parameters()).device
-                logger.info(f"✓ Seamless M4T model placed on device: {sample_param_device}")
-        except Exception as move_e:
-            logger.warning(f"⚠️ Could not explicitly move Seamless model to device: {move_e}")
-        logger.info("✓ Seamless M4T v2 translation model loaded successfully")
-    except Exception as e:
-        logger.error("❌ Failed to load Seamless M4T v2 model: %s", e)
-        logger.warning("Translation functionality will use fallback model")
-        try:
-            logger.info("🔧 Trying fallback translation model...")
+            logger.info("🔧 Loading Seamless M4T v2 translation model...")
+            # Configure Seamless M4T v2 with better parameters
             translator = pipeline(
                 "translation",
-                model="Helsinki-NLP/opus-mt-mul-en",
+                model="facebook/seamless-m4t-v2-large",
                 device=device_id,
+                trust_remote_code=True,
+                torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+                model_kwargs={
+                    "low_cpu_mem_usage": True,
+                    "use_safetensors": True,
+                } if device == "cuda" else {},
                 cache_dir=str(config["HF_CACHE"])
             )
-            translator_model_name = "helsinki-nlp"
-            logger.info("✓ Fallback translation model (Helsinki-NLP) loaded successfully")
-        except Exception as fallback_e:
-            logger.error("❌ Fallback translation model also failed: %s", fallback_e)
-            translator_model_name = "none"
+            translator_model_name = "seamless-m4t-v2"
+            # Force move model to target device (sometimes pipeline keeps parts on CPU)
+            try:
+                if hasattr(translator, 'model'):
+                    model_device = torch.device(device if device != 'cuda' else f'cuda:{device_id}')
+                    translator.model.to(model_device)
+                    # Log a sample parameter device
+                    sample_param_device = next(translator.model.parameters()).device
+                    logger.info(f"✓ Seamless M4T model placed on device: {sample_param_device}")
+            except Exception as move_e:
+                logger.warning(f"⚠️ Could not explicitly move Seamless model to device: {move_e}")
+            logger.info("✓ Seamless M4T v2 translation model loaded successfully")
+        except Exception as e:
+            logger.error("❌ Failed to load Seamless M4T v2 model: %s", e)
+            logger.warning("Translation functionality will use fallback model")
+            try:
+                logger.info("🔧 Trying fallback translation model...")
+                translator = pipeline(
+                    "translation",
+                    model="Helsinki-NLP/opus-mt-mul-en",
+                    device=device_id,
+                    cache_dir=str(config["HF_CACHE"])
+                )
+                translator_model_name = "helsinki-nlp"
+                logger.info("✓ Fallback translation model (Helsinki-NLP) loaded successfully")
+            except Exception as fallback_e:
+                logger.error("❌ Fallback translation model also failed: %s", fallback_e)
+                translator_model_name = "none"
 
     # Embedder
     embedder = None
@@ -144,130 +149,134 @@ def initialize_models(config):
         logger.info("Please install SpaCy English model: python -m spacy download en_core_web_sm")
 
     # Text Generator (Flan-T5 with graceful fallback)
+    text_generation_enabled = os.getenv("TEXT_GENERATION_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
     text_generator = None
-    try:
-        from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+    if not text_generation_enabled:
+        logger.info("⏭️ Skipping text generation model initialization (TEXT_GENERATION_ENABLED=false)")
+    else:
+        try:
+            from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
-        # Auto-select smaller model for low VRAM GPUs unless user overrides
-        user_specified = os.getenv("TEXT_GENERATION_MODEL")
-        requested_model_name = user_specified or "google/flan-t5-xl"
-        if device == "cuda" and not user_specified:
-            try:
-                props = torch.cuda.get_device_properties(0)
-                total_gb = props.total_memory / (1024**3)
-                # Heuristic thresholds (approx):
-                #   <9GB -> flan-t5-base, 9-15GB -> flan-t5-large, else xl
-                if total_gb < 9:
-                    requested_model_name = "google/flan-t5-base"
-                    logger.info(f"🔧 Detected {total_gb:.1f}GB VRAM -> auto-selecting flan-t5-base")
-                elif total_gb < 15:
-                    requested_model_name = "google/flan-t5-large"
-                    logger.info(f"🔧 Detected {total_gb:.1f}GB VRAM -> auto-selecting flan-t5-large")
-                else:
-                    logger.info(f"🔧 Detected {total_gb:.1f}GB VRAM -> keeping flan-t5-xl")
-            except Exception as mem_e:
-                logger.warning(f"⚠️ Could not inspect GPU memory for model sizing: {mem_e}")
-        # Build full attempt list including fallbacks (for logging/reporting)
-        if requested_model_name.endswith("flan-t5-xl"):
-            fallback_chain = [
-                "google/flan-t5-large",
-                "google/flan-t5-base",
-                "google/flan-t5-small"
-            ]
-        elif requested_model_name.endswith("flan-t5-large"):
-            fallback_chain = [
-                "google/flan-t5-base",
-                "google/flan-t5-small"
-            ]
-        elif requested_model_name.endswith("flan-t5-base"):
-            fallback_chain = [
-                "google/flan-t5-small"
-            ]
-        else:
-            fallback_chain = []
-        attempted_models = [requested_model_name] + fallback_chain
+            # Auto-select smaller model for low VRAM GPUs unless user overrides
+            user_specified = os.getenv("TEXT_GENERATION_MODEL")
+            requested_model_name = user_specified or "google/flan-t5-xl"
+            if device == "cuda" and not user_specified:
+                try:
+                    props = torch.cuda.get_device_properties(0)
+                    total_gb = props.total_memory / (1024**3)
+                    # Heuristic thresholds (approx):
+                    #   <9GB -> flan-t5-base, 9-15GB -> flan-t5-large, else xl
+                    if total_gb < 9:
+                        requested_model_name = "google/flan-t5-base"
+                        logger.info(f"🔧 Detected {total_gb:.1f}GB VRAM -> auto-selecting flan-t5-base")
+                    elif total_gb < 15:
+                        requested_model_name = "google/flan-t5-large"
+                        logger.info(f"🔧 Detected {total_gb:.1f}GB VRAM -> auto-selecting flan-t5-large")
+                    else:
+                        logger.info(f"🔧 Detected {total_gb:.1f}GB VRAM -> keeping flan-t5-xl")
+                except Exception as mem_e:
+                    logger.warning(f"⚠️ Could not inspect GPU memory for model sizing: {mem_e}")
+            # Build full attempt list including fallbacks (for logging/reporting)
+            if requested_model_name.endswith("flan-t5-xl"):
+                fallback_chain = [
+                    "google/flan-t5-large",
+                    "google/flan-t5-base",
+                    "google/flan-t5-small"
+                ]
+            elif requested_model_name.endswith("flan-t5-large"):
+                fallback_chain = [
+                    "google/flan-t5-base",
+                    "google/flan-t5-small"
+                ]
+            elif requested_model_name.endswith("flan-t5-base"):
+                fallback_chain = [
+                    "google/flan-t5-small"
+                ]
+            else:
+                fallback_chain = []
+            attempted_models = [requested_model_name] + fallback_chain
 
-        use_8bit = os.getenv("TEXT_GENERATION_8BIT", "false").lower() in {"1", "true", "yes"}
-        bitsandbytes_available = False
-        if use_8bit and device == "cuda":
-            try:
-                import bitsandbytes  # noqa: F401
-                bitsandbytes_available = True
-                logger.info("🔧 8-bit quantization requested and bitsandbytes available; will try load_in_8bit")
-            except Exception:
-                logger.warning("⚠️ 8-bit quantization requested but bitsandbytes not installed; skipping")
-                use_8bit = False
+            use_8bit = os.getenv("TEXT_GENERATION_8BIT", "false").lower() in {"1", "true", "yes"}
+            bitsandbytes_available = False
+            if use_8bit and device == "cuda":
+                try:
+                    import bitsandbytes  # noqa: F401
+                    bitsandbytes_available = True
+                    logger.info("🔧 8-bit quantization requested and bitsandbytes available; will try load_in_8bit")
+                except Exception:
+                    logger.warning("⚠️ 8-bit quantization requested but bitsandbytes not installed; skipping")
+                    use_8bit = False
 
-        for model_name in attempted_models:
-            try:
-                logger.info(f"🔧 Loading text generation model: {model_name}")
-                tokenizer = AutoTokenizer.from_pretrained(
-                    model_name,
-                    cache_dir=str(config["HF_CACHE"]),
-                    use_fast=True
-                )
-                # Assemble kwargs for model loading
-                model_load_kwargs = {
-                    "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
-                    "low_cpu_mem_usage": True,
-                    "cache_dir": str(config["HF_CACHE"]),
-                }
-                if device == "cuda":
-                    # Use accelerate to automatically place layers (prevents full memory spike)
-                    model_load_kwargs["device_map"] = "auto"
-                if use_8bit and bitsandbytes_available:
-                    model_load_kwargs["load_in_8bit"] = True
+            for model_name in attempted_models:
+                try:
+                    logger.info(f"🔧 Loading text generation model: {model_name}")
+                    tokenizer = AutoTokenizer.from_pretrained(
+                        model_name,
+                        cache_dir=str(config["HF_CACHE"]),
+                        use_fast=True
+                    )
+                    # Assemble kwargs for model loading
+                    model_load_kwargs = {
+                        "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
+                        "low_cpu_mem_usage": True,
+                        "cache_dir": str(config["HF_CACHE"]),
+                    }
+                    if device == "cuda":
+                        # Use accelerate to automatically place layers (prevents full memory spike)
+                        model_load_kwargs["device_map"] = "auto"
+                    if use_8bit and bitsandbytes_available:
+                        model_load_kwargs["load_in_8bit"] = True
 
-                model = AutoModelForSeq2SeqLM.from_pretrained(
-                    model_name,
-                    **model_load_kwargs
-                )
+                    model = AutoModelForSeq2SeqLM.from_pretrained(
+                        model_name,
+                        **model_load_kwargs
+                    )
 
-                # IMPORTANT: When model is loaded with accelerate (device_map=auto) we MUST NOT pass device= in pipeline
-                pipeline_kwargs = {
-                    "model": model,
-                    "tokenizer": tokenizer,
-                }
-                # Only pass device for simple CPU/MPS scenario where we didn't use accelerate mapping
-                if device != "cuda":
-                    # For mps or cpu just rely on model's internal device; no explicit device needed
-                    pass
+                    # IMPORTANT: When model is loaded with accelerate (device_map=auto) we MUST NOT pass device= in pipeline
+                    pipeline_kwargs = {
+                        "model": model,
+                        "tokenizer": tokenizer,
+                    }
+                    # Only pass device for simple CPU/MPS scenario where we didn't use accelerate mapping
+                    if device != "cuda":
+                        # For mps or cpu just rely on model's internal device; no explicit device needed
+                        pass
 
-                text_generator = pipeline(
-                    "text2text-generation",
-                    **pipeline_kwargs
-                )
-                logger.info(f"✓ Text generation model loaded: {model_name}")
-                if use_8bit and bitsandbytes_available:
-                    logger.info("✓ 8-bit quantized load successful")
-                break
-            except RuntimeError as re:
-                if "out of memory" in str(re).lower():
-                    logger.warning(f"⚠️ CUDA OOM loading {model_name}. Trying next fallback (if any)...")
-                    if torch.cuda.is_available():
-                        try:
-                            torch.cuda.empty_cache()
-                        except Exception:
-                            pass
-                    continue  # try next model in chain
-                else:
-                    logger.error(f"❌ RuntimeError loading {model_name}: {re}")
+                    text_generator = pipeline(
+                        "text2text-generation",
+                        **pipeline_kwargs
+                    )
+                    logger.info(f"✓ Text generation model loaded: {model_name}")
+                    if use_8bit and bitsandbytes_available:
+                        logger.info("✓ 8-bit quantized load successful")
+                    break
+                except RuntimeError as re:
+                    if "out of memory" in str(re).lower():
+                        logger.warning(f"⚠️ CUDA OOM loading {model_name}. Trying next fallback (if any)...")
+                        if torch.cuda.is_available():
+                            try:
+                                torch.cuda.empty_cache()
+                            except Exception:
+                                pass
+                        continue  # try next model in chain
+                    else:
+                        logger.error(f"❌ RuntimeError loading {model_name}: {re}")
+                        continue
+                except Exception as ge:
+                    logger.error(f"❌ General error loading {model_name}: {ge}")
                     continue
-            except Exception as ge:
-                logger.error(f"❌ General error loading {model_name}: {ge}")
-                continue
 
-        if text_generator is None:
-            logger.error("❌ All text generation model load attempts failed: %s", attempted_models)
-        else:
-            # Attach chosen model name for introspection
-            try:
-                text_generator.chosen_model_name = text_generator.model.config.name_or_path  # type: ignore
-                logger.info(f"🔧 Chosen text generation model: {text_generator.chosen_model_name}")
-            except Exception:
-                pass
-    except Exception as e:
-        logger.error("❌ Failed during text generation model initialization logic: %s", e)
+            if text_generator is None:
+                logger.error("❌ All text generation model load attempts failed: %s", attempted_models)
+            else:
+                # Attach chosen model name for introspection
+                try:
+                    text_generator.chosen_model_name = text_generator.model.config.name_or_path  # type: ignore
+                    logger.info(f"🔧 Chosen text generation model: {text_generator.chosen_model_name}")
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error("❌ Failed during text generation model initialization logic: %s", e)
 
     # Ensure translator_model_name is always set
     if translator_model_name is None:

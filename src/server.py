@@ -112,18 +112,30 @@ app_state.config = {
 app_state.config["HF_CACHE"].mkdir(parents=True, exist_ok=True)
 
 # ---- Global Variables ----------------------------------------------------------
-(
-    app_state.fasttext_model,
-    app_state.classifier,
-    app_state.translator,
-    app_state.embedder,
-    app_state.nlp,
-    app_state.translator_model_name,
-    app_state.text_generator,
-) = initialize_models(app_state.config)
+load_models_on_startup = os.getenv("LOAD_MODELS_ON_STARTUP", "true").strip().lower() in {"1", "true", "yes"}
+if load_models_on_startup:
+    (
+        app_state.fasttext_model,
+        app_state.classifier,
+        app_state.translator,
+        app_state.embedder,
+        app_state.nlp,
+        app_state.translator_model_name,
+        app_state.text_generator,
+    ) = initialize_models(app_state.config)
+else:
+    logger.warning("⏭️ Skipping eager model initialization (LOAD_MODELS_ON_STARTUP=false)")
+    app_state.fasttext_model = None
+    app_state.classifier = None
+    app_state.translator = None
+    app_state.embedder = None
+    app_state.nlp = None
+    app_state.translator_model_name = "none"
+    app_state.text_generator = None
 app_state.classification_lock = asyncio.Lock()
 app_state.translation_lock = asyncio.Lock()
 app_state.clustering_lock = asyncio.Lock()
+app_state.embedding_lock = asyncio.Lock()
 app_state.thread_pool = ThreadPoolExecutor(max_workers=app_state.config["POOL_WORKERS"])
 app_state.processing_loop_task = None
 
