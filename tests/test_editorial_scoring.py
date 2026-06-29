@@ -9,6 +9,8 @@ from src.endpoints.analysis import (
     EDITORIAL_SCORE_MAP,
     _should_run_content_classification,
     _scores_from_editorial_result,
+    _compute_urgency_signals,
+    _final_urgency,
     score_editorial_priority,
     unified_analysis,
 )
@@ -329,3 +331,43 @@ async def test_unified_analysis_editorial_failure_does_not_break_pipeline(
     # Failure falls back to safe low scores; the pipeline continues.
     assert resp.results[0].newsworthiness == 0.0
     assert resp.results[0].urgency == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Rule-based urgency signal tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "text,expected_boost",
+    [
+        ("Manhattan hotel evacuated after mace sprayed inside, FDNY says", 7.5),
+        ("NYC hotel evacuated after guest uses bear spray during fight: NYPD", 7.5),
+        ("Police respond to shooting at downtown mall", 5.5),
+        ("Major earthquake hits city", 3.5),
+        ("Brazil break Japan hearts with last-gasp winner", 0.0),
+        ("City council meeting notes", 0.0),
+    ],
+)
+def test_compute_urgency_signals(text, expected_boost):
+    assert _compute_urgency_signals(text) == expected_boost
+
+
+@pytest.mark.asyncio
+async def test_score_editorial_priority_public_safety_boost(app_state, http_request):
+    # Classifier thinks it is niche, but public-safety signals override urgency.
+    app_state.classifier = DummyClassifier(["niche or low-priority item"], [1.0])
+    text = "Manhattan hotel evacuated after mace sprayed inside, FDNY says"
+    n, u = await score_editorial_priority(text, http_request)
+    assert n == 2.5
+    assert u == 7.5
+
+
+@pytest.mark.asyncio
+async def test_score_editorial_priority_classifier_high_urgency_preserved(
+    app_state, http_request
+):
+    # Existing high classifier urgency should not be reduced by signal logic.
+    app_state.classifier = DummyClassifier(["major breaking story"], [1.0])
+    n, u = await score_editorial_priority("Brazil break Japan hearts", http_request)
+    assert n == 10.0
+    assert u == 10.0

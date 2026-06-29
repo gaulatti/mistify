@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 from fastapi import APIRouter, Request
 from typing import Any, Dict, List, Optional, Tuple
@@ -32,6 +33,75 @@ EDITORIAL_SCORE_MAP = {
     "niche or low-priority item": (2.5, 0.5),
     "not newsworthy": (0.0, 0.0),
 }
+
+# Rule-based urgency signals. DistilBART zero-shot is not reliably calibrated
+# for timeliness/harm, so we add a lightweight signal layer that boosts urgency
+# when the text contains markers of active public-safety incidents, harm,
+# emergency response, or large-scale developing events.
+URGENCY_SIGNAL_CATEGORIES = {
+    "evacuation": {"evacuated", "evacuation", "evacuees", "lockdown", "shelter in place"},
+    "hazardous_agent": {"mace", "bear spray", "pepper spray", "tear gas", "chemical", "toxic", "radioactive"},
+    "active_violence": {
+        "shooting", "shooter", "gunman", "gunfire", "armed", "hostage", "barricaded",
+        "stabbing", "stabbed", "knife", "machete", "attack", "attacker", "bomb",
+        "bomber", "explosion", "exploded", "blast", "shootings",
+    },
+    "casualties": {
+        "killed", "deaths", "dead", "died", "dying", "injured", "injuries",
+        "casualty", "casualties", "wounded", "hurt", "hospitalised", "hospitalized",
+    },
+    "fire": {"fire", "blaze", "inferno", "wildfire"},
+    "natural_disaster": {"earthquake", "tsunami", "hurricane", "tornado", "flood", "flooding"},
+    "emergency_response": {
+        "fdny", "nypd", "police", "firefighter", "firefighters", "emergency",
+        "ems", "ambulance", "rescue", "first responder", "first responders",
+    },
+    "breaking": {"breaking", "developing", "ongoing", "underway"},
+    "scale": {"mass", "multiple", "dozens", "hundreds", "thousands", "widespread", "numerous"},
+    "threat": {"threat", "threatens", "threatened", "warning", "warned", "imminent", "danger"},
+}
+URGENCY_CATEGORY_WEIGHTS = {
+    "evacuation": 3.0,
+    "hazardous_agent": 3.0,
+    "active_violence": 4.0,
+    "casualties": 3.0,
+    "fire": 3.0,
+    "natural_disaster": 3.5,
+    "emergency_response": 1.5,
+    "breaking": 1.0,
+    "scale": 1.0,
+    "threat": 1.5,
+}
+
+
+def _compute_urgency_signals(text: str) -> float:
+    """
+    Compute a 0-10 urgency boost from explicit public-safety/incident signals.
+
+    Each matched category contributes its weight once, regardless of how many
+    terms from that category appear. The result is capped at 10.
+    """
+    if not text:
+        return 0.0
+
+    lowered = text.lower()
+    # Normalize punctuation so multi-word signals match reliably.
+    normalized = re.sub(r"[^\w\s]", " ", lowered)
+    tokens = set(normalized.split())
+    bigrams = {f"{w1} {w2}" for w1, w2 in zip(normalized.split(), normalized.split()[1:])}
+
+    score = 0.0
+    for category, terms in URGENCY_SIGNAL_CATEGORIES.items():
+        if any(term in tokens or term in bigrams for term in terms):
+            score += URGENCY_CATEGORY_WEIGHTS.get(category, 1.0)
+
+    return min(score, 10.0)
+
+
+def _final_urgency(text: str, base_urgency: float) -> float:
+    """Combine classifier urgency with rule-based urgency signals."""
+    signal_urgency = _compute_urgency_signals(text)
+    return round(max(base_urgency, signal_urgency), 2)
 
 
 def _record_analyze_step_timing(
@@ -86,6 +156,7 @@ async def score_editorial_priority(text: str, http_request: Request) -> Tuple[fl
             full_result=result,
         )
         newsworthiness, urgency, _ = _scores_from_editorial_result(class_resp)
+        urgency = _final_urgency(text, urgency)
         return newsworthiness, urgency
     except Exception as e:
         logger.error("❌ Editorial scoring failed: %s", e)
@@ -326,9 +397,10 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                         score=result["scores"][0],
                         full_result=result,
                     )
-                    item.newsworthiness, item.urgency, editorial_label = _scores_from_editorial_result(
+                    item.newsworthiness, base_urgency, editorial_label = _scores_from_editorial_result(
                         editorial_resp
                     )
+                    item.urgency = _final_urgency(item.content, base_urgency)
             except Exception as e:
                 logger.error("❌ Editorial scoring failed in unified analysis: %s", e)
                 item.newsworthiness = 0.0
