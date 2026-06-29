@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from fastapi import APIRouter, Request
@@ -5,11 +6,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from src.models import (
     UnifiedAnalysisRequest, UnifiedAnalysisResponse, UnifiedAnalysisItemResponse,
     LanguageDetectionRequest, LanguageDetectionResponse, TranslationRequest, ClassificationRequest,
-    TranslationResponse, UnifiedAnalysisItemTimings, UnifiedAnalysisTimings
+    ClassificationResponse, TranslationResponse, UnifiedAnalysisItemTimings, UnifiedAnalysisTimings
 )
 from .language import detect_language
 from .translation import translate_text
 from .classification import classify_content
+from src.helpers.async_wrappers import _editorial_classify_sync
 from src import metrics
 
 router = APIRouter()
@@ -53,13 +55,31 @@ async def score_editorial_priority(text: str, http_request: Request) -> Tuple[fl
     """
     Compute both newsworthiness and urgency from one editorial triage decision.
 
-    The classifier is asked to pick the best newsroom action, which maps to:
+    Uses Flan-T5 to classify the post into editorial priority labels, which map to:
     - newsworthiness: "should we publish this?"
     - urgency: "should this wake an editor right now?"
     """
+    app_state = http_request.state.app_state
+    if app_state.text_generator is None:
+        return 0.0, 0.0
+
     try:
-        class_req = ClassificationRequest(text=text, labels=EDITORIAL_PRIORITY_LABELS)
-        class_resp = await classify_content(class_req, http_request)
+        async with app_state.editorial_lock:
+            result = await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(
+                    app_state.thread_pool,
+                    _editorial_classify_sync,
+                    app_state.text_generator,
+                    text,
+                    EDITORIAL_PRIORITY_LABELS,
+                ),
+                timeout=app_state.config["TIMEOUT"],
+            )
+        class_resp = ClassificationResponse(
+            label=result["labels"][0],
+            score=result["scores"][0],
+            full_result=result,
+        )
         newsworthiness, urgency, _ = _scores_from_editorial_result(class_resp)
         return newsworthiness, urgency
     except Exception as e:
@@ -246,16 +266,27 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                 )
 
             # Compute newsworthiness and urgency from one editorial scoring pass
-            if app_state.classifier:
+            if app_state.text_generator:
                 text_to_classify = item.content
 
                 step_started_at = time.perf_counter()
                 try:
-                    class_req = ClassificationRequest(
-                        text=text_to_classify,
-                        labels=EDITORIAL_PRIORITY_LABELS,
+                    async with app_state.editorial_lock:
+                        result = await asyncio.wait_for(
+                            asyncio.get_running_loop().run_in_executor(
+                                app_state.thread_pool,
+                                _editorial_classify_sync,
+                                app_state.text_generator,
+                                text_to_classify,
+                                EDITORIAL_PRIORITY_LABELS,
+                            ),
+                            timeout=app_state.config["TIMEOUT"],
+                        )
+                    editorial_resp = ClassificationResponse(
+                        label=result["labels"][0],
+                        score=result["scores"][0],
+                        full_result=result,
                     )
-                    editorial_resp = await classify_content(class_req, http_request)
                     item.newsworthiness, item.urgency, editorial_label = _scores_from_editorial_result(
                         editorial_resp
                     )

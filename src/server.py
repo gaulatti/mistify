@@ -136,6 +136,7 @@ app_state.classification_lock = asyncio.Lock()
 app_state.translation_lock = asyncio.Lock()
 app_state.clustering_lock = asyncio.Lock()
 app_state.embedding_lock = asyncio.Lock()
+app_state.editorial_lock = asyncio.Lock()
 app_state.thread_pool = ThreadPoolExecutor(max_workers=app_state.config["POOL_WORKERS"])
 app_state.processing_loop_task = None
 

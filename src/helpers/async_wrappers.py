@@ -162,6 +162,62 @@ def _classify_sync(classifier, text: str, labels: List[str]):
             raise e
 
 
+def _editorial_classify_sync(text_generator, text: str, labels: List[str]):
+    """Classify text into editorial priority labels using Flan-T5."""
+    try:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        cleaned_text = text.strip()
+        if not cleaned_text:
+            return {"labels": ["not newsworthy"], "scores": [1.0]}
+
+        # Keep prompt text bounded to avoid excessive generation time.
+        if len(cleaned_text) > 512:
+            cleaned_text = cleaned_text[:512]
+
+        prompt = (
+            "A senior news editor must classify this post into exactly one category.\n\n"
+            "Categories:\n"
+            + "\n".join(f"- {label}" for label in labels)
+            + f"\n\nPost: {cleaned_text}\n\nCategory:"
+        )
+
+        result = text_generator(
+            prompt,
+            max_new_tokens=20,
+            num_beams=1,
+            do_sample=False,
+            early_stopping=True,
+        )
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        if isinstance(result, list) and result:
+            generated_text = str(result[0].get("generated_text", ""))
+        else:
+            generated_text = str(result)
+
+        generated_lower = generated_text.lower().strip()
+        matched_label = None
+        for label in labels:
+            if label.lower() in generated_lower:
+                matched_label = label
+                break
+
+        if matched_label is None:
+            logger.warning("Flan-T5 editorial output did not match any label: %r", generated_text)
+            matched_label = "not newsworthy"
+
+        return {"labels": [matched_label], "scores": [1.0]}
+    except Exception as e:
+        logger.error("Editorial classification failed: %s", e)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        return {"labels": ["not newsworthy"], "scores": [1.0]}
+
+
 def _translate_sync(translator, text: str, source_lang: Optional[str] = None, target_lang: str = "eng",
                     model_name: str = None):
     """Synchronous translation function with progressive fallback strategies"""
