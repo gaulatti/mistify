@@ -15,9 +15,9 @@ from tqdm import tqdm
 
 # ---- Configuration -------------------------------------------------------------
 CLUSTERING_SIM_ENTITY = 0.35  # Base threshold for entity-aided clustering
-CLUSTERING_SIM_GLOBAL = 0.65  # Pure-semantic same-event threshold
+CLUSTERING_SIM_GLOBAL = 0.55  # Pure-semantic same-event threshold (cross-lingual safe)
 CLUSTERING_BIG_COMM = 20      # Allow slightly larger event communities
-CLUSTERING_AVG_SIM_MIN = 0.50 # Prevent over-splitting legitimate event clusters
+CLUSTERING_AVG_SIM_MIN = 0.45 # Prevent over-splitting legitimate event clusters
 CLUSTERING_TOPIC_LABELS = ["economy", "politics", "sports", "conflict", "misc"]
 CLUSTERING_ALIAS_THR = 0.20
 CLUSTERING_TOK_REMOVE = {"the", "a", "an", "of"}
@@ -380,8 +380,8 @@ def build_clustering_graph(
         # different-event stories. The semantic barrier is intentionally raised
         # for the shared-entity fallback so that a common person/place alone
         # (e.g. "Taylor Swift") does not merge unrelated events.
-        entity_semantic_min = sim_entity + 0.15
-        shared_entity_semantic_min = sim_entity + 0.20
+        entity_semantic_min = sim_entity + 0.20
+        shared_entity_semantic_min = sim_entity + 0.25
 
         if event_specific_mode:
             # Event-specific clustering methods prioritize entity overlap + high semantic similarity

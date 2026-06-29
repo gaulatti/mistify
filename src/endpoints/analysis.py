@@ -11,7 +11,7 @@ from src.models import (
 from .language import detect_language
 from .translation import translate_text
 from .classification import classify_content
-from src.helpers.async_wrappers import _classify_sync
+from src.helpers.async_wrappers import _classify_sync, _embed_sync
 from src import metrics
 
 router = APIRouter()
@@ -269,6 +269,33 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                     source_language=detected_language,
                     target_language="eng"
                 )
+
+            # Compute embedding on the (possibly translated) English content.
+            # This replaces any upstream embedding so downstream vector search
+            # operates in a single language space.
+            if app_state.embedder is None:
+                logger.warning(
+                    "Embedding generation skipped: embedder is not loaded. "
+                    "Set LOAD_MODELS_ON_STARTUP=true to enable embedding output."
+                )
+
+            try:
+                if app_state.embedder:
+                    emb = await asyncio.wait_for(
+                        asyncio.get_running_loop().run_in_executor(
+                            app_state.thread_pool,
+                            _embed_sync,
+                            app_state.embedder,
+                            [item.content],
+                            64,
+                            True,
+                        ),
+                        timeout=app_state.config["TIMEOUT"],
+                    )
+                    if emb is not None and emb.shape[0] > 0:
+                        item.embedding = emb[0].tolist()
+            except Exception as e:
+                logger.error("❌ Embedding generation failed in unified analysis: %s", e)
 
             # Compute newsworthiness and urgency from one editorial scoring pass.
             # This uses the DistilBART zero-shot classifier, which returns a

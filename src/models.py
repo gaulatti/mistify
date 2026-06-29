@@ -148,6 +148,7 @@ class UnifiedAnalysisItemResponse(BaseModel):
     translation: Optional[TranslationResponse] = None
     newsworthiness: Optional[float] = None
     urgency: Optional[float] = None
+    embedding: Optional[List[float]] = None
     timings: Optional[UnifiedAnalysisItemTimings] = None
 
 

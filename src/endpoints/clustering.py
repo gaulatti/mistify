@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import Union
+from typing import List, Optional, Union
 from fastapi import APIRouter, HTTPException, Request
 from src.models import (
     ClusteringRequest, ClusteringResponse, ClusterGroup,
@@ -15,6 +15,98 @@ router = APIRouter()
 logger = logging.getLogger("mistify")
 
 
+def _cosine_similarity(a: List[float], b: List[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    import math
+
+    if not a or not b:
+        return 0.0
+
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _filter_candidate_posts(
+    main_post: PostData,
+    candidates: List[PostData],
+    embedder,
+    min_similarity: float = 0.45,
+    max_candidates: int = 10,
+) -> List[PostData]:
+    """
+    Pre-filter candidate posts before expensive graph clustering.
+
+    Uses cosine similarity between the main post embedding and each candidate.
+    Candidates without precomputed embeddings are embedded on the fly. This
+    removes low-similarity noise that otherwise causes false merges or
+    dilutes real event clusters.
+    """
+    if not candidates:
+        return []
+
+    main_embedding = getattr(main_post, "embeddings", None) or getattr(main_post, "embedding", None)
+    if not main_embedding:
+        logger.warning("⚠️ Main post has no embedding; skipping candidate pre-filter")
+        return candidates[:max_candidates]
+
+    contents_to_embed = []
+    candidate_indices = []
+    precomputed = []
+
+    for idx, candidate in enumerate(candidates):
+        cand_emb = getattr(candidate, "embeddings", None) or getattr(candidate, "embedding", None)
+        if cand_emb:
+            precomputed.append((idx, cand_emb))
+        else:
+            contents_to_embed.append(candidate.content)
+            candidate_indices.append(idx)
+
+    computed_embeddings = []
+    if contents_to_embed:
+        try:
+            computed_embeddings = embedder.encode(
+                contents_to_embed,
+                batch_size=64,
+                convert_to_numpy=True,
+                normalize_embeddings=True,
+            ).tolist()
+        except Exception as e:
+            logger.warning("⚠️ Failed to embed candidate posts for pre-filter: %s", e)
+            return candidates[:max_candidates]
+
+    idx_to_emb = dict(precomputed)
+    for idx, emb in zip(candidate_indices, computed_embeddings):
+        idx_to_emb[idx] = emb
+
+    scored = []
+    for idx, candidate in enumerate(candidates):
+        emb = idx_to_emb.get(idx)
+        if emb is None:
+            continue
+        sim = _cosine_similarity(main_embedding, emb)
+        scored.append((sim, candidate))
+        logger.debug("🔍 Candidate pre-filter: post=%s sim=%.3f", candidate.id, sim)
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    filtered = [c for sim, c in scored if sim >= min_similarity]
+
+    if len(filtered) > max_candidates:
+        filtered = filtered[:max_candidates]
+
+    logger.info(
+        "🔍 Pre-filter: %d candidates -> %d after similarity filter (min=%.2f, max=%d)",
+        len(candidates),
+        len(filtered),
+        min_similarity,
+        max_candidates,
+    )
+    return filtered
+
+
 @router.post("/cluster", response_model=PostClusteringResponse)
 async def cluster_texts(req: PostData, http_request: Request):
     """Cluster a single post with its similar posts using entity-aware, topic-gated community detection"""
@@ -24,19 +116,32 @@ async def cluster_texts(req: PostData, http_request: Request):
 
     # Debug: Log the incoming request structure
     logger.info(f"🔍 Clustering request - Post ID: {req.id}, Similar posts: {type(req.similarPosts)}")
-    
+
+    # Pre-filter candidates to remove low-similarity noise before graph clustering.
+    # This keeps the graph focused on plausible same-event posts and reduces both
+    # under-clustering (diluted by noise) and over-clustering (weak same-subject
+    # candidates that only share broad entities).
+    candidate_posts = req.similarPosts or []
+    filtered_candidates = _filter_candidate_posts(
+        req,
+        candidate_posts,
+        app_state.embedder,
+        min_similarity=0.45,
+        max_candidates=10,
+    )
+
     # Prepare texts for clustering: main post + similar posts
     texts = [req.content]  # Main post first
     all_posts = [req]  # Keep reference to all posts for building response
-    
-    # Add similar posts to the clustering candidates (with null check)
-    if req.similarPosts is not None:
-        logger.info(f"🔍 Processing {len(req.similarPosts)} similar posts")
-        for similar_post in req.similarPosts:
+
+    # Add filtered similar posts to the clustering candidates
+    if filtered_candidates:
+        logger.info(f"🔍 Processing {len(filtered_candidates)} filtered similar posts")
+        for similar_post in filtered_candidates:
             texts.append(similar_post.content)
             all_posts.append(similar_post)
     else:
-        logger.warning(f"⚠️ No similar posts provided for post {req.id}")
+        logger.warning(f"⚠️ No similar posts passed pre-filter for post {req.id}")
     
     # Track batch size and posts processed
     batch_size = len(texts)
@@ -111,9 +216,9 @@ async def cluster_texts(req: PostData, http_request: Request):
     # same-subject/different-event merges.
     cluster_config = {
         "similarity_entity": 0.35,  # Base threshold for entity-aided clustering
-        "similarity_global": 0.65,  # Pure-semantic same-event threshold
+        "similarity_global": 0.55,  # Pure-semantic same-event threshold (cross-lingual safe)
         "big_community_size": 20,   # Allow slightly larger event communities
-        "avg_similarity_min": 0.50, # Prevent over-splitting legitimate event clusters
+        "avg_similarity_min": 0.45, # Prevent over-splitting legitimate event clusters
         "topic_strict_mode": False, # Coarse topic labels are too noisy to gate on
         "entity_context_weight": 0.20, # Moderate weight for event-specific entities
         "min_shared_entities": 1,   # Require at least one shared key entity

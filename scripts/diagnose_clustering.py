@@ -69,11 +69,31 @@ CASES = [
             "Volkswagen to cut jobs as part of CEO's restructuring plan",
         ],
     ),
+    (
+        "brazil_japan_world_cup",
+        "Brazil beat Japan with an agonizing goal and advanced to the round of 16 of the World Cup",
+        [
+            "Shout Brazil, shout South America! Martinelli gave the classification to the 'Canarinha' who is already in the round of 16.",
+            "Brazil's hard climb with a comeback against Japan; the samurai died standing up!",
+            "The Canarinha appeared: Brazil beat Japan with an agonizing goal and advanced to the round of 16 of the World Cup",
+            "Brazil reacts against Japan and ends a 24-year fast of Copa matches; recall the reactions",
+            # distractor (same tournament, different event)
+            "Calendar of the round of 16 of the World Cup: confirmed dates and times",
+        ],
+    ),
 ]
 
 
-def make_request(case_id, main_content, similar_contents):
-    def post(pid: int, content: str):
+def make_request(case_id, main_content, similar_contents, embedder):
+    all_contents = [main_content] + list(similar_contents)
+    embeddings = embedder.encode(
+        all_contents,
+        batch_size=64,
+        convert_to_numpy=True,
+        normalize_embeddings=True,
+    ).tolist()
+
+    def post(pid: int, content: str, embedding: list):
         return PostData(
             id=pid,
             content=content,
@@ -81,13 +101,15 @@ def make_request(case_id, main_content, similar_contents):
             createdAt="2026-06-29T00:00:00Z",
             hash=f"hash-{case_id}-{pid}",
             uuid=f"uuid-{case_id}-{pid}",
+            embedding=embedding,
         )
 
+    main_post = post(0, main_content, embeddings[0])
     similar_posts = [
-        post(i + 1, content)
+        post(i + 1, content, embeddings[i + 1])
         for i, content in enumerate(similar_contents)
     ]
-    return post(0, main_content).model_copy(update={"similarPosts": similar_posts})
+    return main_post.model_copy(update={"similarPosts": similar_posts})
 
 
 async def main():
@@ -133,7 +155,7 @@ async def main():
     print("=" * 80)
 
     for case_id, main, similars in CASES:
-        req = make_request(case_id, main, similars)
+        req = make_request(case_id, main, similars, embedder)
         print(f"\n--- Case: {case_id} ---")
         print(f"Main: {main}")
         print(f"Similar posts: {len(similars)}")

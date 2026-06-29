@@ -209,11 +209,13 @@ def _merge_processed_items(raw_items, analysis_resp):
         if res.urgency is not None:
             base["urgency"] = res.urgency
 
+        if res.embedding is not None:
+            base["embeddings"] = res.embedding
+
         if res.timings:
             base["analysis_timings"] = res.timings.model_dump()
 
         processed.append(base)
-
     return processed
 
 
