@@ -34,30 +34,50 @@ def _filter_candidate_posts(
     main_post: PostData,
     candidates: List[PostData],
     embedder,
-    min_similarity: float = 0.45,
-    max_candidates: int = 10,
+    min_similarity: float = 0.30,
+    max_candidates: int = 20,
 ) -> List[PostData]:
     """
     Pre-filter candidate posts before expensive graph clustering.
 
-    Uses cosine similarity between the main post embedding and each candidate.
-    Candidates without precomputed embeddings are embedded on the fly. This
-    removes low-similarity noise that otherwise causes false merges or
-    dilutes real event clusters.
+    - Drops exact duplicates by hash/content.
+    - Uses cosine similarity between the main post embedding and each candidate.
+    - Candidates without precomputed embeddings are embedded on the fly.
+
+    This removes low-similarity noise that otherwise causes false merges or
+    dilutes real event clusters, while keeping enough candidates so the same
+    event covered from different angles can still reconnect.
     """
     if not candidates:
         return []
 
+    # Deduplicate by hash or exact content; preserve order.
+    seen_hashes = {getattr(main_post, "hash", None), getattr(main_post, "id", None)}
+    seen_content = {main_post.content.strip().lower()}
+    unique_candidates = []
+    for candidate in candidates:
+        h = getattr(candidate, "hash", None)
+        cid = getattr(candidate, "id", None)
+        content_key = candidate.content.strip().lower()
+        if h in seen_hashes or cid in seen_hashes or content_key in seen_content:
+            continue
+        if h:
+            seen_hashes.add(h)
+        if cid:
+            seen_hashes.add(cid)
+        seen_content.add(content_key)
+        unique_candidates.append(candidate)
+
     main_embedding = getattr(main_post, "embeddings", None) or getattr(main_post, "embedding", None)
     if not main_embedding:
-        logger.warning("⚠️ Main post has no embedding; skipping candidate pre-filter")
-        return candidates[:max_candidates]
+        logger.warning("⚠️ Main post has no embedding; skipping candidate similarity pre-filter")
+        return unique_candidates[:max_candidates]
 
     contents_to_embed = []
     candidate_indices = []
     precomputed = []
 
-    for idx, candidate in enumerate(candidates):
+    for idx, candidate in enumerate(unique_candidates):
         cand_emb = getattr(candidate, "embeddings", None) or getattr(candidate, "embedding", None)
         if cand_emb:
             precomputed.append((idx, cand_emb))
@@ -76,14 +96,14 @@ def _filter_candidate_posts(
             ).tolist()
         except Exception as e:
             logger.warning("⚠️ Failed to embed candidate posts for pre-filter: %s", e)
-            return candidates[:max_candidates]
+            return unique_candidates[:max_candidates]
 
     idx_to_emb = dict(precomputed)
     for idx, emb in zip(candidate_indices, computed_embeddings):
         idx_to_emb[idx] = emb
 
     scored = []
-    for idx, candidate in enumerate(candidates):
+    for idx, candidate in enumerate(unique_candidates):
         emb = idx_to_emb.get(idx)
         if emb is None:
             continue
@@ -98,8 +118,9 @@ def _filter_candidate_posts(
         filtered = filtered[:max_candidates]
 
     logger.info(
-        "🔍 Pre-filter: %d candidates -> %d after similarity filter (min=%.2f, max=%d)",
+        "🔍 Pre-filter: %d candidates -> %d unique -> %d after similarity filter (min=%.2f, max=%d)",
         len(candidates),
+        len(unique_candidates),
         len(filtered),
         min_similarity,
         max_candidates,
@@ -126,8 +147,8 @@ async def cluster_texts(req: PostData, http_request: Request):
         req,
         candidate_posts,
         app_state.embedder,
-        min_similarity=0.45,
-        max_candidates=10,
+        min_similarity=0.30,
+        max_candidates=20,
     )
 
     # Prepare texts for clustering: main post + similar posts
@@ -216,9 +237,9 @@ async def cluster_texts(req: PostData, http_request: Request):
     # same-subject/different-event merges.
     cluster_config = {
         "similarity_entity": 0.35,  # Base threshold for entity-aided clustering
-        "similarity_global": 0.55,  # Pure-semantic same-event threshold (cross-lingual safe)
-        "big_community_size": 20,   # Allow slightly larger event communities
-        "avg_similarity_min": 0.45, # Prevent over-splitting legitimate event clusters
+        "similarity_global": 0.50,  # Pure-semantic same-event threshold (cross-lingual safe)
+        "big_community_size": 25,   # Allow slightly larger event communities
+        "avg_similarity_min": 0.40, # Prevent over-splitting legitimate event clusters
         "topic_strict_mode": False, # Coarse topic labels are too noisy to gate on
         "entity_context_weight": 0.20, # Moderate weight for event-specific entities
         "min_shared_entities": 1,   # Require at least one shared key entity

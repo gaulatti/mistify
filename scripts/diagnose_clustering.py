@@ -77,8 +77,43 @@ CASES = [
             "Brazil's hard climb with a comeback against Japan; the samurai died standing up!",
             "The Canarinha appeared: Brazil beat Japan with an agonizing goal and advanced to the round of 16 of the World Cup",
             "Brazil reacts against Japan and ends a 24-year fast of Copa matches; recall the reactions",
+            # pre-match coverage of the same game (different angle, same event)
+            "Brazil vs. Japan, live for the 2026 World Cup: time, TV and the formations",
+            "Football: Japan fans hope to paint the stands blue, then leave them spotless",
             # distractor (same tournament, different event)
             "Calendar of the round of 16 of the World Cup: confirmed dates and times",
+        ],
+    ),
+    (
+        "brazil_japan_split_simulation",
+        "Brazil vs. Japan, live for the 2026 World Cup: time, TV and the formations",
+        [
+            # These posts come from the other production cluster (post-match focus).
+            # Same event, so they should merge even though the angle differs.
+            "Brazil beat Japan with an agonizing goal and advanced to the round of 16 of the World Cup",
+            "Martinelli scores late winner to send Brazil through",
+            "With Martinelli's goal in the extra time, Brazil beat Japan and advanced to the round of 16 of the World Cup.",
+            "Father figure Carlo Ancelotti will have a plan for Brazil. He always has a plan",
+            # distractor
+            "2026 World Cup: Gustavo Alfaro answered Chilavert in the previous match between Argentina and Ecuador",
+        ],
+    ),
+    (
+        "generic_entity_no_merge",
+        "Supreme Court allows Trump administration to proceed with federal worker layoffs",
+        [
+            "Supreme Court rules on Texas immigration enforcement dispute",
+            "Trump signs executive order on energy policy",
+            # These mention the same generic entities but are different events
+        ],
+    ),
+    (
+        "template_how_to_watch",
+        "How to watch Dodgers vs Padres NLDS Game 3: TV channel, live stream",
+        [
+            "How to watch Yankees vs Royals ALDS Game 2: schedule, streaming",
+            "How to watch Celtics vs Lakers tonight: NBA schedule and odds",
+            # These share a template format but are different events
         ],
     ),
 ]
@@ -114,7 +149,7 @@ def make_request(case_id, main_content, similar_contents, embedder):
 
 async def main():
     config = {
-        "FASTTEXT_MODEL_PATH": "lid.176.bin",
+        "FASTTEXT_MODEL_PATH": os.path.expanduser("~/.hf_models/lid.176.bin"),
         "FASTTEXT_MODEL_URL": "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin",
         "DEFAULT_CLASSIFICATION_LABELS": [],
         "MIN_SCORE": 0.30,

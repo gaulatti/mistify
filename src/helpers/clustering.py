@@ -15,9 +15,9 @@ from tqdm import tqdm
 
 # ---- Configuration -------------------------------------------------------------
 CLUSTERING_SIM_ENTITY = 0.35  # Base threshold for entity-aided clustering
-CLUSTERING_SIM_GLOBAL = 0.55  # Pure-semantic same-event threshold (cross-lingual safe)
-CLUSTERING_BIG_COMM = 20      # Allow slightly larger event communities
-CLUSTERING_AVG_SIM_MIN = 0.45 # Prevent over-splitting legitimate event clusters
+CLUSTERING_SIM_GLOBAL = 0.50  # Pure-semantic same-event threshold (cross-lingual safe)
+CLUSTERING_BIG_COMM = 25      # Allow slightly larger event communities
+CLUSTERING_AVG_SIM_MIN = 0.40 # Prevent over-splitting legitimate event clusters
 CLUSTERING_TOPIC_LABELS = ["economy", "politics", "sports", "conflict", "misc"]
 CLUSTERING_ALIAS_THR = 0.20
 CLUSTERING_TOK_REMOVE = {"the", "a", "an", "of"}
@@ -29,6 +29,70 @@ CLUSTERING_ENTITY_CONTEXT_WEIGHT = 0.25
 CLUSTERING_MIN_SHARED_ENTITIES = 1
 CLUSTERING_TOPIC_STRICT_MODE = False  # Allow cross-topic for same events
 CLUSTERING_EVENT_SPECIFIC_MODE = True
+
+# Entities that are too generic to merge stories on their own. Shared
+# appearance of these requires higher semantic similarity to form an edge.
+# Country/team names are intentionally excluded because in sports they are
+# the primary event-specific signal (e.g. Brazil vs Japan).
+GENERIC_ENTITIES = {
+    "supreme court", "trump", "world cup", "world cup 2026", "fifa",
+    "united states", "usa", "us", "uk", "united kingdom", "england",
+    "new york", "california", "washington", "congress", "white house",
+    "senate", "house", "european union", "eu", "china", "russia",
+    "ukraine", "israel", "gaza", "palestine", "iran", "syria",
+}
+
+# Template phrases that indicate boilerplate/schedule posts rather than
+# event-specific news. Shared template phrasing raises the merge threshold.
+TEMPLATE_PREFIXES = {
+    "how to watch", "what to know", "what time", "live updates",
+    "breaking:", "breaking news", "how to follow", "full transcript",
+    "transcript:", "schedule:", "odds:", "preview:", "recap:",
+}
+
+
+def _template_overlap_score(text_a: str, text_b: str) -> float:
+    """
+    Return a 0-1 score indicating how much of the two texts share the same
+    template/boilerplate phrasing. High scores are a warning sign that two
+    posts are format siblings rather than the same event.
+    """
+    a = text_a.lower().strip()
+    b = text_b.lower().strip()
+
+    # Shared leading template prefix is a strong signal.
+    a_prefix = " ".join(a.split()[:3])
+    b_prefix = " ".join(b.split()[:3])
+    for prefix in TEMPLATE_PREFIXES:
+        if a.startswith(prefix) and b.startswith(prefix):
+            return 1.0
+
+    # Compute Jaccard overlap of function-word bigrams.
+    def _bigrams(text):
+        toks = [t for t in CLUSTERING_PUN_RE.sub(" ", text).split() if t]
+        return {f"{toks[i]} {toks[i + 1]}" for i in range(len(toks) - 1)}
+
+    a_bigrams = _bigrams(a)
+    b_bigrams = _bigrams(b)
+    if not a_bigrams or not b_bigrams:
+        return 0.0
+    intersection = a_bigrams & b_bigrams
+    union = a_bigrams | b_bigrams
+    # Ignore content bigrams by only counting bigrams where at least one word
+    # is a function word; this catches "how to", "what to", "to watch" etc.
+    function_words = {
+        "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
+        "of", "with", "by", "from", "as", "is", "are", "was", "were", "be",
+        "been", "being", "have", "has", "had", "do", "does", "did", "will",
+        "would", "could", "should", "may", "might", "must", "can", "this",
+        "that", "these", "those", "how", "what", "when", "where", "why",
+        "who", "which", "watch", "know", "follow", "updates", "live",
+    }
+    templaty = {bg for bg in intersection if any(w in function_words for w in bg.split())}
+    templaty_union = {bg for bg in union if any(w in function_words for w in bg.split())}
+    if not templaty_union:
+        return 0.0
+    return len(templaty) / len(templaty_union)
 
 # Entity type weights for context-aware similarity
 ENTITY_TYPE_WEIGHTS = {
@@ -369,8 +433,20 @@ def build_clustering_graph(
         semantic_sim = float(sims[i, j])
 
         # Calculate entity-based similarity
-        has_shared_entities = bool(entities[i] & entities[j])
+        shared_entities = entities[i] & entities[j]
+        has_shared_entities = bool(shared_entities)
         entity_context_sim = calculate_entity_context_similarity(entities_typed[i], entities_typed[j], config)
+
+        # If the only shared entities are generic (e.g. "Supreme Court", "Trump",
+        # "World Cup"), we require stronger semantic evidence to avoid merging
+        # unrelated stories that merely mention the same broad subject.
+        only_generic_shared = has_shared_entities and all(
+            e.strip().lower() in GENERIC_ENTITIES for e in shared_entities
+        )
+
+        # Shared boilerplate/template phrasing (e.g. "How to watch ...") is a
+        # strong sign that two posts are format siblings, not the same event.
+        template_score = _template_overlap_score(texts[i], texts[j])
 
         # Determine if we should add an edge for event-specific clustering
         ok = False
@@ -378,10 +454,38 @@ def build_clustering_graph(
 
         # Thresholds tuned to separate same-event stories from same-subject,
         # different-event stories. The semantic barrier is intentionally raised
-        # for the shared-entity fallback so that a common person/place alone
-        # (e.g. "Taylor Swift") does not merge unrelated events.
+        # when the only shared signal is a generic entity, a single entity, or
+        # a common template, so broad subjects ("Taylor Swift", "Supreme Court")
+        # do not merge unrelated events.
         entity_semantic_min = sim_entity + 0.20
         shared_entity_semantic_min = sim_entity + 0.25
+        effective_sim_global = sim_global
+
+        # Single shared non-generic entity: a slight bump is enough; many same-event
+        # stories only share one protagonist (e.g. "Senator Smith").
+        single_non_generic = has_shared_entities and len(shared_entities) == 1 and not only_generic_shared
+        if single_non_generic:
+            entity_semantic_min = max(entity_semantic_min, sim_global + 0.03)
+            shared_entity_semantic_min = max(shared_entity_semantic_min, sim_global + 0.05)
+            effective_sim_global = max(effective_sim_global, sim_global + 0.05)
+
+        # Only generic shared entities (e.g. "Supreme Court", "Trump") need a
+        # bigger bump to avoid merging unrelated stories about the same institution.
+        if only_generic_shared:
+            entity_semantic_min = max(entity_semantic_min, sim_global + 0.10)
+            shared_entity_semantic_min = max(shared_entity_semantic_min, sim_global + 0.15)
+            effective_sim_global = max(effective_sim_global, sim_global + 0.10)
+
+        # Template-heavy pairs that do NOT share a specific entity are almost
+        # certainly format siblings ("How to watch X vs Y"). Require very high
+        # semantic similarity before merging.
+        specific_shared = has_shared_entities and any(
+            e.strip().lower() not in GENERIC_ENTITIES for e in shared_entities
+        )
+        if template_score >= 0.5 and not specific_shared:
+            entity_semantic_min = max(entity_semantic_min, sim_global + 0.25)
+            shared_entity_semantic_min = max(shared_entity_semantic_min, sim_global + 0.30)
+            effective_sim_global = max(effective_sim_global, sim_global + 0.25)
 
         if event_specific_mode:
             # Event-specific clustering methods prioritize entity overlap + high semantic similarity
@@ -394,7 +498,7 @@ def build_clustering_graph(
                     reason = f"EVENT_ENT & {semantic_sim:.2f} (ctx: {entity_context_sim:.2f})"
 
             # Method 2: Very high semantic similarity (same event, different angle)
-            elif semantic_sim >= sim_global:
+            elif semantic_sim >= effective_sim_global:
                 ok = True
                 reason = f"EVENT_SEM {semantic_sim:.2f}"
 
@@ -410,7 +514,7 @@ def build_clustering_graph(
                 if combined_sim >= sim_entity:
                     ok = True
                     reason = f"ENT_CTX & {semantic_sim:.2f} (ctx: {entity_context_sim:.2f})"
-            elif semantic_sim >= sim_global:
+            elif semantic_sim >= effective_sim_global:
                 ok = True
                 reason = f"SEM {semantic_sim:.2f}"
             elif has_shared_entities and semantic_sim >= shared_entity_semantic_min:
