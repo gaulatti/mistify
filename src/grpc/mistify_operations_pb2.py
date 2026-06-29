@@ -112,18 +112,6 @@ cluster_post_request.name = "ClusterPostRequest"
 _struct(cluster_post_request, "post", 1)
 _common(cluster_post_request, 2)
 
-generate_text_request = file_proto.message_type.add()
-generate_text_request.name = "GenerateTextRequest"
-_string(generate_text_request, "prompt", 1)
-_int32(generate_text_request, "max_new_tokens", 2)
-_int32(generate_text_request, "min_new_tokens", 3)
-_int32(generate_text_request, "num_beams", 4)
-_double(generate_text_request, "temperature", 5)
-_bool(generate_text_request, "do_sample", 6)
-_int32(generate_text_request, "no_repeat_ngram_size", 7)
-_double(generate_text_request, "length_penalty", 8)
-_common(generate_text_request, 9)
-
 enqueue_analysis_response = file_proto.message_type.add()
 enqueue_analysis_response.name = "EnqueueAnalysisResponse"
 _string(enqueue_analysis_response, "operation_id", 1)
@@ -140,7 +128,6 @@ for name, request_type in (
     ("TranslateText", "TranslateTextRequest"),
     ("EmbedText", "EmbedTextRequest"),
     ("ClusterPost", "ClusterPostRequest"),
-    ("GenerateText", "GenerateTextRequest"),
 ):
     method = service.method.add()
     method.name = name

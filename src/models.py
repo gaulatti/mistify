@@ -273,17 +273,4 @@ class PostClusteringResponse(BaseModel):
     debug_info: Optional[Dict] = None
 
 
-class TextGenerationRequest(BaseModel):
-    prompt: str
-    max_new_tokens: int = 600          # Upper bound (service will clamp to <=800)
-    min_new_tokens: int = 120          # Encourage substantive output
-    num_beams: int = 4                 # Beam search for better coverage
-    temperature: float = 0.7           # Only used if do_sample=True
-    do_sample: bool = False            # Default deterministic
-    no_repeat_ngram_size: int = 4      # Reduce repetition
-    length_penalty: float = 1.0        # Can adjust brevity/verbosity
 
-
-class TextGenerationResponse(BaseModel):
-    prompt: str
-    generated_text: str

@@ -46,7 +46,7 @@ These metrics track the volume of posts and items being processed:
   - Description: Total number of posts/items processed
   - Labels: `endpoint`
   - Use case: **Calculate posts analyzed per minute** by endpoint
-  - Endpoints tracked: `analyze`, `cluster`, `classify`, `translate`, `detect`, `embed`, `generate_text`
+  - Endpoints tracked: `analyze`, `cluster`, `classify`, `translate`, `detect`, `embed`
 
 - **`mistify_posts_batch_size`** (Histogram)
   - Description: Number of posts/items in each request
@@ -61,7 +61,7 @@ These metrics track individual model operations:
 - **`mistify_model_operation_total`** (Counter)
   - Description: Total model/operation executions
   - Labels: `operation`, `outcome`
-  - Operations: `analyze`, `cluster`, `classify`, `translate`, `language_detect`, `embed`, `generate_text`
+  - Operations: `analyze`, `cluster`, `classify`, `translate`, `language_detect`, `embed`
   - Outcomes: `success`, `error`, `timeout`
   - Use case: Track operation success/failure rates
 
@@ -74,7 +74,7 @@ These metrics track individual model operations:
 - **`mistify_model_available`** (Gauge)
   - Description: Whether a model/component is available (1) or not (0)
   - Labels: `model`
-  - Models: `fasttext`, `classifier`, `translator`, `embedder`, `nlp`, `text_generator`
+  - Models: `fasttext`, `classifier`, `translator`, `embedder`, `nlp`
   - Use case: Monitor model availability
 
 ### 4. Failure and Retry Metrics

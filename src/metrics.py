@@ -283,7 +283,6 @@ def update_runtime_metrics(app_state: Optional[object] = None) -> None:
         MODEL_AVAILABLE.labels(model="translator").set(1.0 if getattr(app_state, "translator", None) is not None else 0.0)
         MODEL_AVAILABLE.labels(model="embedder").set(1.0 if getattr(app_state, "embedder", None) is not None else 0.0)
         MODEL_AVAILABLE.labels(model="nlp").set(1.0 if getattr(app_state, "nlp", None) is not None else 0.0)
-        MODEL_AVAILABLE.labels(model="text_generator").set(1.0 if getattr(app_state, "text_generator", None) is not None else 0.0)
 
 
 def route_label_from_request_scope(scope: dict) -> str:

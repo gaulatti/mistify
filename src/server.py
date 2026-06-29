@@ -41,7 +41,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from src.helpers.models import initialize_models
 from src.endpoints import (
-    language, classification, translation, embedding, clustering, analysis, generation
+    language, classification, translation, embedding, clustering, analysis
 )
 from src.models import UnifiedAnalysisRequest
 from src.grpc.server import start_grpc_server
@@ -121,7 +121,6 @@ if load_models_on_startup:
         app_state.embedder,
         app_state.nlp,
         app_state.translator_model_name,
-        app_state.text_generator,
     ) = initialize_models(app_state.config)
 else:
     logger.warning("⏭️ Skipping eager model initialization (LOAD_MODELS_ON_STARTUP=false)")
@@ -131,7 +130,6 @@ else:
     app_state.embedder = None
     app_state.nlp = None
     app_state.translator_model_name = "none"
-    app_state.text_generator = None
 app_state.classification_lock = asyncio.Lock()
 app_state.translation_lock = asyncio.Lock()
 app_state.clustering_lock = asyncio.Lock()
@@ -342,7 +340,6 @@ app.include_router(classification.router)
 app.include_router(translation.router)
 app.include_router(embedding.router)
 app.include_router(clustering.router)
-app.include_router(generation.router)
 
 
 # ---- System Endpoints ----------------------------------------------------------
@@ -358,7 +355,6 @@ def health():
             "translator_loaded": app_state.translator is not None,
             "embedder_loaded": app_state.embedder is not None,
             "nlp_loaded": app_state.nlp is not None,
-            "text_generator_loaded": app_state.text_generator is not None,
         },
         "system": {
             "threads": process.num_threads(),
@@ -383,7 +379,7 @@ def root():
     return {
         "service": "Unified Text Analysis API",
         "version": "1.3.0",
-        "capabilities": ["language_detection", "content_classification", "translation", "text_clustering", "text_generation"],
+        "capabilities": ["language_detection", "content_classification", "translation", "text_clustering"],
         "background_processing_loop": {
             "fetch_url": app_state.config["PROCESSING_FETCH_URL"],
             "post_url": app_state.config["PROCESSING_POST_URL"],
@@ -397,7 +393,6 @@ def root():
             "translation": "/translate",
             "embeddings": "/embed",
             "text_clustering": "/cluster",
-            "text_generation": "/generate/text",
             "health": "/health"
         }
     }

@@ -6,13 +6,12 @@ from typing import Any, Dict, List, Optional
 import httpx
 from pydantic import ValidationError
 
-from src.endpoints import analysis, classification, clustering, embedding, generation, language, translation
+from src.endpoints import analysis, classification, clustering, embedding, language, translation
 from src.models import (
     ClassificationRequest,
     EmbeddingItem,
     LanguageDetectionRequest,
     PostData,
-    TextGenerationRequest,
     TranslationRequest,
     UnifiedAnalysisRequest,
 )
@@ -82,8 +81,6 @@ class OperationWorker:
             return await self._embed_text(envelope)
         if envelope.operation_type == "cluster_post":
             return await self._cluster_post(envelope)
-        if envelope.operation_type == "generate_text":
-            return await self._generate_text(envelope)
 
         raise ValueError(f"Unsupported operation_type: {envelope.operation_type}")
 
@@ -136,13 +133,6 @@ class OperationWorker:
     async def _cluster_post(self, envelope: OperationEnvelope) -> Dict[str, Any]:
         response = await clustering.cluster_texts(
             PostData.model_validate(envelope.payload),
-            self._request(),
-        )
-        return response.model_dump()
-
-    async def _generate_text(self, envelope: OperationEnvelope) -> Dict[str, Any]:
-        response = await generation.generate_text(
-            TextGenerationRequest(**envelope.payload),
             self._request(),
         )
         return response.model_dump()

@@ -11,7 +11,6 @@ _METHODS = {
     "TranslateText": pb.TranslateTextRequest,
     "EmbedText": pb.EmbedTextRequest,
     "ClusterPost": pb.ClusterPostRequest,
-    "GenerateText": pb.GenerateTextRequest,
 }
 
 
@@ -49,9 +48,6 @@ class MistifyOperationsServicer:
         raise NotImplementedError("Method not implemented")
 
     async def ClusterPost(self, request, context):
-        raise NotImplementedError("Method not implemented")
-
-    async def GenerateText(self, request, context):
         raise NotImplementedError("Method not implemented")
 
 

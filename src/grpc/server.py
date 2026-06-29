@@ -90,22 +90,6 @@ class MistifyOperationsService(mistify_operations_pb2_grpc.MistifyOperationsServ
             MessageToDict(request.post, preserving_proto_field_name=True),
         )
 
-    async def GenerateText(self, request, context):
-        return await self._enqueue_request(
-            "generate_text",
-            request,
-            {
-                "prompt": request.prompt,
-                "max_new_tokens": request.max_new_tokens or 600,
-                "min_new_tokens": request.min_new_tokens or 120,
-                "num_beams": request.num_beams or 4,
-                "temperature": request.temperature or 0.7,
-                "do_sample": request.do_sample,
-                "no_repeat_ngram_size": request.no_repeat_ngram_size or 4,
-                "length_penalty": request.length_penalty or 1.0,
-            },
-        )
-
     async def _enqueue_request(self, operation_type, request, payload):
         envelope = OperationEnvelope(
             operation_type=operation_type,

@@ -12,7 +12,6 @@ service MistifyOperations {
   rpc TranslateText (TranslateTextRequest) returns (EnqueueAnalysisResponse);
   rpc EmbedText (EmbedTextRequest) returns (EnqueueAnalysisResponse);
   rpc ClusterPost (ClusterPostRequest) returns (EnqueueAnalysisResponse);
-  rpc GenerateText (GenerateTextRequest) returns (EnqueueAnalysisResponse);
 }
 
 message HttpCallback {
@@ -85,21 +84,6 @@ message ClusterPostRequest {
   OperationContext context = 3;
   google.protobuf.Struct metadata = 4;
   HttpCallback callback = 5;
-}
-
-message GenerateTextRequest {
-  string prompt = 1;
-  int32 max_new_tokens = 2;
-  int32 min_new_tokens = 3;
-  int32 num_beams = 4;
-  double temperature = 5;
-  bool do_sample = 6;
-  int32 no_repeat_ngram_size = 7;
-  double length_penalty = 8;
-  string idempotency_key = 9;
-  OperationContext context = 10;
-  google.protobuf.Struct metadata = 11;
-  HttpCallback callback = 12;
 }
 
 message EnqueueAnalysisResponse {

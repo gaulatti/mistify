@@ -11,7 +11,7 @@ from src.models import (
 from .language import detect_language
 from .translation import translate_text
 from .classification import classify_content
-from src.helpers.async_wrappers import _editorial_classify_sync
+from src.helpers.async_wrappers import _classify_sync
 from src import metrics
 
 router = APIRouter()
@@ -55,12 +55,17 @@ async def score_editorial_priority(text: str, http_request: Request) -> Tuple[fl
     """
     Compute both newsworthiness and urgency from one editorial triage decision.
 
-    Uses Flan-T5 to classify the post into editorial priority labels, which map to:
-    - newsworthiness: "should we publish this?"
-    - urgency: "should this wake an editor right now?"
+    Uses DistilBART zero-shot classification to score the post against editorial
+    priority labels, then computes weighted urgency/newsworthiness across the
+    full probability distribution. This yields continuous 0-10 scores instead
+    of hard 0/10 buckets.
     """
     app_state = http_request.state.app_state
-    if app_state.text_generator is None:
+    if app_state.classifier is None:
+        logger.warning(
+            "Editorial scoring skipped: classifier is not loaded. "
+            "Set LOAD_MODELS_ON_STARTUP=true to enable urgency/newsworthiness scoring."
+        )
         return 0.0, 0.0
 
     try:
@@ -68,8 +73,8 @@ async def score_editorial_priority(text: str, http_request: Request) -> Tuple[fl
             result = await asyncio.wait_for(
                 asyncio.get_running_loop().run_in_executor(
                     app_state.thread_pool,
-                    _editorial_classify_sync,
-                    app_state.text_generator,
+                    _classify_sync,
+                    app_state.classifier,
                     text,
                     EDITORIAL_PRIORITY_LABELS,
                 ),
@@ -265,18 +270,25 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                     target_language="eng"
                 )
 
-            # Compute newsworthiness and urgency from one editorial scoring pass
-            if app_state.text_generator:
-                text_to_classify = item.content
+            # Compute newsworthiness and urgency from one editorial scoring pass.
+            # This uses the DistilBART zero-shot classifier, which returns a
+            # probability distribution across all editorial labels.
+            if app_state.classifier is None:
+                logger.warning(
+                    "Editorial scoring skipped: classifier is not loaded. "
+                    "Set LOAD_MODELS_ON_STARTUP=true to enable urgency/newsworthiness scoring."
+                )
 
-                step_started_at = time.perf_counter()
-                try:
+            text_to_classify = item.content
+            step_started_at = time.perf_counter()
+            try:
+                if app_state.classifier:
                     async with app_state.editorial_lock:
                         result = await asyncio.wait_for(
                             asyncio.get_running_loop().run_in_executor(
                                 app_state.thread_pool,
-                                _editorial_classify_sync,
-                                app_state.text_generator,
+                                _classify_sync,
+                                app_state.classifier,
                                 text_to_classify,
                                 EDITORIAL_PRIORITY_LABELS,
                             ),
@@ -290,10 +302,13 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                     item.newsworthiness, item.urgency, editorial_label = _scores_from_editorial_result(
                         editorial_resp
                     )
-                except Exception as e:
-                    logger.error("❌ Editorial scoring failed in unified analysis: %s", e)
-                finally:
-                    _record_shared_editorial_timing(step_started_at, batch_totals_ms, item_timings)
+            except Exception as e:
+                logger.error("❌ Editorial scoring failed in unified analysis: %s", e)
+                item.newsworthiness = 0.0
+                item.urgency = 0.0
+                editorial_label = "not newsworthy"
+            finally:
+                _record_shared_editorial_timing(step_started_at, batch_totals_ms, item_timings)
 
             if req.classify_content and app_state.classifier and _should_run_content_classification(editorial_label):
                 step_started_at = time.perf_counter()

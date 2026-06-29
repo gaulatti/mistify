@@ -23,7 +23,6 @@ Mistify exposes a unified FastAPI service with endpoints for each helper:
 - `/cluster` — Text clustering
 - `/analyze` — Unified multi-step analysis
 - `/embed` — Generate sentence embeddings
-- `/generate/text` — Text generation
 - `/health` — Health check
 - `/metrics` — Prometheus metrics for monitoring
 
@@ -36,7 +35,6 @@ Mistify also exposes gRPC on port `50000` for new async operation submission:
 - `mistify.operations.MistifyOperations/TranslateText`
 - `mistify.operations.MistifyOperations/EmbedText`
 - `mistify.operations.MistifyOperations/ClusterPost`
-- `mistify.operations.MistifyOperations/GenerateText`
 
 For detailed API documentation, including request/response examples, please see the [API Documentation on the Wiki](https://github.com/gaulatti/mistify/wiki/Text-Clustering-API-Documentation).
 
@@ -129,4 +127,3 @@ Configure the service using the following environment variables:
 - `DOCKER_PLATFORM`: Optional Docker platform override for Compose builds/runs (default: `linux/amd64`). Useful on Apple Silicon when base images are amd64-only.
 - `LOAD_MODELS_ON_STARTUP`: Set to `false` to start the API without eagerly loading models (fast boot; model-backed endpoints can return `503` until models are loaded by your runtime strategy).
 - `TRANSLATION_ENABLED`: Set to `false` to skip loading translation models at startup (faster boot; `/translate` and translation in `/analyze` will return fallback/unavailable behavior).
-- `TEXT_GENERATION_ENABLED`: Set to `false` to skip loading the text generation model at startup (faster boot; `/generate/text` will return 503).
