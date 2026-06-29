@@ -107,13 +107,14 @@ async def cluster_texts(req: PostData, http_request: Request):
         has_category_data,
     )
 
-    # Clustering configuration balanced for same-event detection
+    # Clustering configuration tuned for same-event detection while avoiding
+    # same-subject/different-event merges.
     cluster_config = {
-        "similarity_entity": 0.35,  # Moderate entity weight for event-specific entities
-        "similarity_global": 0.70,  # High but not extreme threshold for same-event clustering
-        "big_community_size": 15,   # Small communities for tighter event clustering
-        "avg_similarity_min": 0.65, # Moderate minimum for same-event stories
-        "topic_strict_mode": False, # Allow cross-topic clustering for same events
+        "similarity_entity": 0.35,  # Base threshold for entity-aided clustering
+        "similarity_global": 0.65,  # Pure-semantic same-event threshold
+        "big_community_size": 20,   # Allow slightly larger event communities
+        "avg_similarity_min": 0.50, # Prevent over-splitting legitimate event clusters
+        "topic_strict_mode": False, # Coarse topic labels are too noisy to gate on
         "entity_context_weight": 0.20, # Moderate weight for event-specific entities
         "min_shared_entities": 1,   # Require at least one shared key entity
         "domain_filtering": False,  # Disable domain filtering - focus on events not domains

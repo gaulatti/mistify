@@ -14,10 +14,10 @@ from sklearn.cluster import AgglomerativeClustering
 from tqdm import tqdm
 
 # ---- Configuration -------------------------------------------------------------
-CLUSTERING_SIM_ENTITY = 0.40  # Restored for event-specific entities
-CLUSTERING_SIM_GLOBAL = 0.80  # Very high threshold for same-event clustering
-CLUSTERING_BIG_COMM = 15      # Smaller communities for tighter event clustering
-CLUSTERING_AVG_SIM_MIN = 0.75 # Very high minimum for same-event stories
+CLUSTERING_SIM_ENTITY = 0.35  # Base threshold for entity-aided clustering
+CLUSTERING_SIM_GLOBAL = 0.65  # Pure-semantic same-event threshold
+CLUSTERING_BIG_COMM = 20      # Allow slightly larger event communities
+CLUSTERING_AVG_SIM_MIN = 0.50 # Prevent over-splitting legitimate event clusters
 CLUSTERING_TOPIC_LABELS = ["economy", "politics", "sports", "conflict", "misc"]
 CLUSTERING_ALIAS_THR = 0.20
 CLUSTERING_TOK_REMOVE = {"the", "a", "an", "of"}
@@ -195,25 +195,18 @@ def calculate_entity_context_similarity(entities_i: Dict[str, Set[str]], entitie
 
 
 def should_cluster_by_topic(topic_i: str, topic_j: str, config: Dict = None) -> bool:
-    """Determine if two texts should be clustered based on their topics"""
+    """Determine if two texts should be clustered based on their topics.
+
+    Topic gating is intentionally permissive: the five coarse labels used by
+    DistilBART are too noisy to block same-event clustering. We only enforce
+    topic matching when strict mode is explicitly enabled.
+    """
     topic_strict_mode = config.get("topic_strict_mode", CLUSTERING_TOPIC_STRICT_MODE) if config else CLUSTERING_TOPIC_STRICT_MODE
 
-    # Never cluster if either topic is misc (too generic)
-    if topic_i == "misc" or topic_j == "misc":
-        return False
-
-    # In strict mode, topics must match exactly
     if topic_strict_mode:
         return topic_i == topic_j
 
-    # In non-strict mode, allow some compatible topic pairs
-    compatible_pairs = {
-        ("economy", "politics"),
-        ("politics", "economy"),
-        # Add more compatible pairs as needed
-    }
-
-    return topic_i == topic_j or (topic_i, topic_j) in compatible_pairs
+    return True
 
 
 def get_primary_topics(
@@ -383,11 +376,18 @@ def build_clustering_graph(
         ok = False
         reason = ""
 
+        # Thresholds tuned to separate same-event stories from same-subject,
+        # different-event stories. The semantic barrier is intentionally raised
+        # for the shared-entity fallback so that a common person/place alone
+        # (e.g. "Taylor Swift") does not merge unrelated events.
+        entity_semantic_min = sim_entity + 0.15
+        shared_entity_semantic_min = sim_entity + 0.20
+
         if event_specific_mode:
             # Event-specific clustering methods prioritize entity overlap + high semantic similarity
 
             # Method 1: Strong entity overlap + good semantic similarity (main entities of the event)
-            if entity_context_sim > 0.3 and semantic_sim >= sim_entity:
+            if entity_context_sim > 0.3 and semantic_sim >= entity_semantic_min:
                 combined_sim = (semantic_sim * (1 - entity_context_weight)) + (entity_context_sim * entity_context_weight)
                 if combined_sim >= sim_entity:
                     ok = True
@@ -399,13 +399,13 @@ def build_clustering_graph(
                 reason = f"EVENT_SEM {semantic_sim:.2f}"
 
             # Method 3: Shared key entities + decent semantic similarity (related event stories)
-            elif has_shared_entities and semantic_sim >= sim_entity * 0.85:
+            elif has_shared_entities and semantic_sim >= shared_entity_semantic_min:
                 ok = True
                 reason = f"EVENT_SHARED & {semantic_sim:.2f}"
 
         else:
             # Fallback to original clustering logic
-            if entity_context_sim > 0 and semantic_sim >= sim_entity:
+            if entity_context_sim > 0 and semantic_sim >= entity_semantic_min:
                 combined_sim = (semantic_sim * (1 - entity_context_weight)) + (entity_context_sim * entity_context_weight)
                 if combined_sim >= sim_entity:
                     ok = True
@@ -413,7 +413,7 @@ def build_clustering_graph(
             elif semantic_sim >= sim_global:
                 ok = True
                 reason = f"SEM {semantic_sim:.2f}"
-            elif has_shared_entities and semantic_sim >= sim_entity * 0.8:
+            elif has_shared_entities and semantic_sim >= shared_entity_semantic_min:
                 ok = True
                 reason = f"ENT_FALL & {semantic_sim:.2f}"
 
