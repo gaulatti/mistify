@@ -147,8 +147,8 @@ async def cluster_texts(req: PostData, http_request: Request):
         req,
         candidate_posts,
         app_state.embedder,
-        min_similarity=0.30,
-        max_candidates=20,
+        min_similarity=app_state.config.get("CLUSTERING_PRE_FILTER_MIN_SIM", 0.25),
+        max_candidates=app_state.config.get("CLUSTERING_MAX_CANDIDATES", 30),
     )
 
     # Prepare texts for clustering: main post + similar posts
@@ -234,17 +234,18 @@ async def cluster_texts(req: PostData, http_request: Request):
     )
 
     # Clustering configuration tuned for same-event detection while avoiding
-    # same-subject/different-event merges.
+    # same-subject/different-event merges. Thresholds are driven by environment
+    # variables so production can be tuned without redeploying code.
     cluster_config = {
-        "similarity_entity": 0.35,  # Base threshold for entity-aided clustering
-        "similarity_global": 0.50,  # Pure-semantic same-event threshold (cross-lingual safe)
-        "big_community_size": 25,   # Allow slightly larger event communities
-        "avg_similarity_min": 0.40, # Prevent over-splitting legitimate event clusters
-        "topic_strict_mode": False, # Coarse topic labels are too noisy to gate on
-        "entity_context_weight": 0.20, # Moderate weight for event-specific entities
-        "min_shared_entities": 1,   # Require at least one shared key entity
-        "domain_filtering": False,  # Disable domain filtering - focus on events not domains
-        "event_specific_mode": True, # Enable event-specific clustering
+        "similarity_entity": app_state.config.get("CLUSTERING_SIM_ENTITY", 0.35),
+        "similarity_global": app_state.config.get("CLUSTERING_SIM_GLOBAL", 0.50),
+        "big_community_size": 25,
+        "avg_similarity_min": app_state.config.get("CLUSTERING_AVG_SIM_MIN", 0.40),
+        "topic_strict_mode": False,
+        "entity_context_weight": 0.20,
+        "min_shared_entities": 1,
+        "domain_filtering": False,
+        "event_specific_mode": True,
         "precomputed_entities": precomputed_entities if has_complete_entities else None,
         "precomputed_embeddings": precomputed_embeddings if has_any_embeddings else None,
         "precomputed_categories": precomputed_categories if has_category_data else None,

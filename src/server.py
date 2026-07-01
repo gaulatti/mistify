@@ -108,6 +108,12 @@ app_state.config = {
     "VALKEY_HOST": os.getenv("VALKEY_HOST", "host.docker.internal"),
     "VALKEY_PORT": int(os.getenv("VALKEY_PORT", "6379")),
     "HF_CACHE": pathlib.Path(os.environ.get("HF_HOME", pathlib.Path.home() / ".hf_models")),
+    # Clustering thresholds (tune for recall vs precision)
+    "CLUSTERING_SIM_ENTITY": float(os.getenv("CLUSTERING_SIM_ENTITY", "0.35")),
+    "CLUSTERING_SIM_GLOBAL": float(os.getenv("CLUSTERING_SIM_GLOBAL", "0.50")),
+    "CLUSTERING_AVG_SIM_MIN": float(os.getenv("CLUSTERING_AVG_SIM_MIN", "0.40")),
+    "CLUSTERING_PRE_FILTER_MIN_SIM": float(os.getenv("CLUSTERING_PRE_FILTER_MIN_SIM", "0.25")),
+    "CLUSTERING_MAX_CANDIDATES": int(os.getenv("CLUSTERING_MAX_CANDIDATES", "30")),
 }
 app_state.config["HF_CACHE"].mkdir(parents=True, exist_ok=True)
 
