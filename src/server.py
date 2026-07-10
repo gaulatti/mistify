@@ -27,7 +27,6 @@ import torch
 import warnings
 import pathlib
 import time
-import httpx
 from redis.asyncio import Redis
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -35,7 +34,6 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import Response
 from types import SimpleNamespace
 from dotenv import load_dotenv
-from pydantic import ValidationError
 
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
@@ -43,7 +41,6 @@ from src.helpers.models import initialize_models
 from src.endpoints import (
     language, classification, translation, embedding, clustering, analysis
 )
-from src.models import UnifiedAnalysisRequest
 from src.grpc.server import start_grpc_server
 from src.operations.queue import OperationQueue
 from src.operations.worker import OperationWorker
@@ -100,11 +97,7 @@ app_state.config = {
     "POOL_WORKERS": int(os.getenv("POOL_WORKERS", "4")),
     "TIMEOUT": int(os.getenv("TIMEOUT", "10")),
     "PROCESSING_TRANSLATE_TO_ENGLISH": os.getenv("PROCESSING_TRANSLATE_TO_ENGLISH", "true").lower() in {"1", "true", "yes"},
-    "PROCESSING_FETCH_URL": os.getenv("PROCESSING_FETCH_URL", "https://api.cronkite.fifthbell.com/processing/fetch"),
-    "PROCESSING_POST_URL": os.getenv("PROCESSING_POST_URL", "https://n8n.gaulatti.com/webhook/727a2ba4-a274-462c-91cc-8d2abc7bb81e"),
     "MONITOR_GRPC_CALLBACK_TARGET": os.getenv("MONITOR_GRPC_CALLBACK_TARGET", "localhost:50055"),
-    "PROCESSING_IDLE_SLEEP_SECONDS": float(os.getenv("PROCESSING_IDLE_SLEEP_SECONDS", "5")),
-    "PROCESSING_HTTP_TIMEOUT_SECONDS": float(os.getenv("PROCESSING_HTTP_TIMEOUT_SECONDS", "30")),
     "HTTP_PORT": int(os.getenv("HTTP_PORT", "8000")),
     "VALKEY_HOST": os.getenv("VALKEY_HOST", "host.docker.internal"),
     "VALKEY_PORT": int(os.getenv("VALKEY_PORT", "6379")),
@@ -143,7 +136,6 @@ app_state.clustering_lock = asyncio.Lock()
 app_state.embedding_lock = asyncio.Lock()
 app_state.editorial_lock = asyncio.Lock()
 app_state.thread_pool = ThreadPoolExecutor(max_workers=app_state.config["POOL_WORKERS"])
-app_state.processing_loop_task = None
 
 
 def _create_redis_client(config):
@@ -159,152 +151,6 @@ app_state.operation_queue = OperationQueue(app_state.redis_client)
 app_state.operation_worker = OperationWorker(app_state.operation_queue, app_state)
 app_state.operation_worker_task = None
 app_state.grpc_server = None
-
-
-def _extract_items_and_queue(payload):
-    """Extract (items, queue_size) from supported fetch payload shapes."""
-    if isinstance(payload, list) and payload:
-        first = payload[0]
-        if isinstance(first, dict):
-            items = first.get("items") or []
-            queue_size = first.get("queueSize")
-            return items if isinstance(items, list) else [], queue_size
-
-    if isinstance(payload, dict):
-        items = payload.get("items") or []
-        queue_size = payload.get("queueSize")
-        return items if isinstance(items, list) else [], queue_size
-
-    return [], None
-
-
-def _merge_processed_items(raw_items, analysis_resp):
-    """Merge analysis output back into original item payloads."""
-    processed = []
-    results = analysis_resp.results if analysis_resp else []
-
-    for idx, raw in enumerate(raw_items):
-        base = dict(raw) if isinstance(raw, dict) else {"raw": raw}
-        if idx >= len(results):
-            processed.append(base)
-            continue
-
-        res = results[idx]
-
-        base["content"] = res.content
-
-        if res.language_detection:
-            lang_dump = res.language_detection.model_dump()
-            base["language_detection"] = lang_dump
-            langs = lang_dump.get("languages") or []
-            if langs and not base.get("lang"):
-                base["lang"] = langs[0]
-
-        if res.content_classification:
-            cls_dump = res.content_classification.model_dump()
-            base["content_classification"] = cls_dump
-            labels = (cls_dump.get("full_result") or {}).get("labels") or []
-            if labels:
-                base["classification_labels"] = labels
-
-        if res.translation:
-            base["translation"] = res.translation.model_dump()
-
-        if res.newsworthiness is not None:
-            base["newsworthiness"] = res.newsworthiness
-
-        if res.urgency is not None:
-            base["urgency"] = res.urgency
-
-        if res.embedding is not None:
-            base["embeddings"] = res.embedding
-
-        if res.timings:
-            base["analysis_timings"] = res.timings.model_dump()
-
-        processed.append(base)
-    return processed
-
-
-async def _processing_loop():
-    """Continuously POST-fetch items, process, POST-forward results, and repeat."""
-    fetch_url = app_state.config["PROCESSING_FETCH_URL"]
-    post_url = app_state.config["PROCESSING_POST_URL"]
-    idle_sleep = app_state.config["PROCESSING_IDLE_SLEEP_SECONDS"]
-    timeout = app_state.config["PROCESSING_HTTP_TIMEOUT_SECONDS"]
-
-    logger.info("🔁 Processing loop started (POST fetch -> analyze -> POST forward)")
-    logger.info("   fetch_url=%s", fetch_url)
-    logger.info("   post_url=%s", post_url)
-
-    fake_request = SimpleNamespace(state=SimpleNamespace(app_state=app_state))
-
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        while True:
-            try:
-                fetch_resp = await client.post(fetch_url, json={})
-                fetch_resp.raise_for_status()
-
-                try:
-                    fetched_payload = fetch_resp.json()
-                except json.JSONDecodeError:
-                    logger.warning("⚠️ Fetch response is not valid JSON; sleeping %.1fs", idle_sleep)
-                    await asyncio.sleep(idle_sleep)
-                    continue
-
-                items, queue_size = _extract_items_and_queue(fetched_payload)
-
-                if not items:
-                    logger.info("📭 Queue empty (queueSize=%s). Sleeping %.1fs", queue_size, idle_sleep)
-                    await asyncio.sleep(idle_sleep)
-                    continue
-
-                logger.info("📥 Fetched %d items (queueSize=%s)", len(items), queue_size)
-
-                try:
-                    req = UnifiedAnalysisRequest(
-                        items=items,
-                        translate_to_english=app_state.config["PROCESSING_TRANSLATE_TO_ENGLISH"]
-                    )
-                except ValidationError as ve:
-                    logger.warning("⚠️ Batch validation failed; attempting per-item filtering: %s", ve)
-                    valid_items = []
-                    for it in items:
-                        try:
-                            UnifiedAnalysisRequest(items=[it])
-                            valid_items.append(it)
-                        except ValidationError:
-                            continue
-
-                    if not valid_items:
-                        logger.warning("⚠️ No valid items in fetched batch; sleeping %.1fs", idle_sleep)
-                        await asyncio.sleep(idle_sleep)
-                        continue
-
-                    logger.info("🧹 Filtered batch to %d valid items (from %d)", len(valid_items), len(items))
-                    req = UnifiedAnalysisRequest(
-                        items=valid_items,
-                        translate_to_english=app_state.config["PROCESSING_TRANSLATE_TO_ENGLISH"]
-                    )
-                    items = valid_items
-
-                analysis_resp = await analysis.unified_analysis(req, fake_request)
-                processed_items = _merge_processed_items(items, analysis_resp)
-
-                forward_resp = await client.post(post_url, json=processed_items)
-                forward_resp.raise_for_status()
-
-                logger.info("📤 Forwarded %d processed items", len(processed_items))
-
-                # Continue immediately while queue has data.
-                await asyncio.sleep(0)
-
-            except asyncio.CancelledError:
-                logger.info("🛑 Processing loop cancelled")
-                raise
-            except Exception as e:
-                logger.error("❌ Processing loop error: %s", e)
-                await asyncio.sleep(idle_sleep)
 
 
 # ---- Middleware to pass state --------------------------------------------------
@@ -389,10 +235,6 @@ def root():
         "service": "Unified Text Analysis API",
         "version": "1.3.0",
         "capabilities": ["language_detection", "content_classification", "translation", "text_clustering"],
-        "background_processing_loop": {
-            "fetch_url": app_state.config["PROCESSING_FETCH_URL"],
-            "post_url": app_state.config["PROCESSING_POST_URL"],
-        },
         "operation_queue": {
             "queue_name": app_state.operation_queue.queue_name,
         },
@@ -414,9 +256,6 @@ async def start_processing_loop():
     if app_state.operation_worker_task is None or app_state.operation_worker_task.done():
         app_state.operation_worker_task = asyncio.create_task(app_state.operation_worker.run_forever())
 
-    if app_state.processing_loop_task is None or app_state.processing_loop_task.done():
-        app_state.processing_loop_task = asyncio.create_task(_processing_loop())
-
 
 async def stop_processing_loop():
     if app_state.grpc_server is not None:
@@ -427,14 +266,6 @@ async def stop_processing_loop():
         operation_task.cancel()
         try:
             await operation_task
-        except asyncio.CancelledError:
-            pass
-
-    task = app_state.processing_loop_task
-    if task and not task.done():
-        task.cancel()
-        try:
-            await task
         except asyncio.CancelledError:
             pass
     await app_state.redis_client.aclose()

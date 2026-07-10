@@ -14,10 +14,7 @@ IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60
 
 
 class OperationQueue:
-    """Redis-backed queue for new Mistify async operations.
-
-    This is intentionally separate from the legacy Cronkite polling flow.
-    """
+    """Redis-backed queue for async Mistify operations."""
 
     def __init__(self, redis_client: Redis) -> None:
         self.redis = redis_client
