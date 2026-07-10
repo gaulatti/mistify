@@ -4,44 +4,43 @@ import os
 import grpc
 from google.protobuf.json_format import MessageToDict
 
-from src.grpc import mistify_operations_pb2, mistify_operations_pb2_grpc
-from src.operations.models import HttpCallback, OperationContext, OperationEnvelope
+from src.grpc.mistify import operations_pb2, operations_pb2_grpc
+from src.operations.models import GrpcCallback, HttpCallback, OperationContext, OperationEnvelope
 
 logger = logging.getLogger("mistify")
 
 GRPC_PORT = int(os.getenv("GRPC_PORT", "50000"))
 
 
-class MistifyOperationsService(mistify_operations_pb2_grpc.MistifyOperationsServicer):
+class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
     def __init__(self, operation_queue) -> None:
         self.operation_queue = operation_queue
 
-    async def AnalyzePost(self, request, context):
-        envelope = OperationEnvelope(
-            operation_type="analyze_post",
-            idempotency_key=request.idempotency_key or None,
-            payload=MessageToDict(request.post, preserving_proto_field_name=True),
-            context=self._context(request.context),
-            metadata=MessageToDict(request.metadata, preserving_proto_field_name=True),
-            callback=self._callback(request.callback),
-        )
-        return await self._enqueue(envelope)
-
     async def AnalyzePosts(self, request, context):
+        items = [
+            {
+                "post": MessageToDict(item.post, preserving_proto_field_name=True),
+                "idempotency_key": item.idempotency_key or None,
+            }
+            for item in request.items
+        ]
+        payload = {"items": items}
+        if request.classification_labels:
+            payload["classification_labels"] = list(request.classification_labels)
+
         envelope = OperationEnvelope(
             operation_type="analyze_posts",
-            idempotency_key=request.idempotency_key or None,
-            payload={
-                "items": [
-                    MessageToDict(post, preserving_proto_field_name=True)
-                    for post in request.posts
-                ],
-            },
+            payload=payload,
             context=self._context(request.context),
             metadata=MessageToDict(request.metadata, preserving_proto_field_name=True),
             callback=self._callback(request.callback),
+            grpc_callback=self._grpc_callback(request.grpc_callback),
         )
-        return await self._enqueue(envelope)
+        queued = await self.operation_queue.enqueue(envelope)
+        return operations_pb2.EnqueueAnalysisResponse(
+            operation_id=envelope.operation_id,
+            queued=queued,
+        )
 
     async def DetectLanguage(self, request, context):
         return await self._enqueue_request(
@@ -98,8 +97,13 @@ class MistifyOperationsService(mistify_operations_pb2_grpc.MistifyOperationsServ
             context=self._context(request.context),
             metadata=MessageToDict(request.metadata, preserving_proto_field_name=True),
             callback=self._callback(request.callback),
+            grpc_callback=self._grpc_callback(request.grpc_callback),
         )
-        return await self._enqueue(envelope)
+        queued = await self.operation_queue.enqueue(envelope)
+        return operations_pb2.EnqueueAnalysisResponse(
+            operation_id=envelope.operation_id,
+            queued=queued,
+        )
 
     def _context(self, context):
         return OperationContext(
@@ -109,15 +113,8 @@ class MistifyOperationsService(mistify_operations_pb2_grpc.MistifyOperationsServ
             trace_id=context.trace_id,
         )
 
-    async def _enqueue(self, envelope):
-        queued = await self.operation_queue.enqueue(envelope)
-        return mistify_operations_pb2.EnqueueAnalysisResponse(
-            operation_id=envelope.operation_id,
-            queued=queued,
-        )
-
     def _callback(self, callback):
-        if not callback.url:
+        if not callback or not callback.url:
             return None
 
         return HttpCallback(
@@ -125,10 +122,20 @@ class MistifyOperationsService(mistify_operations_pb2_grpc.MistifyOperationsServ
             headers=dict(callback.headers),
         )
 
+    def _grpc_callback(self, grpc_callback):
+        if not grpc_callback or not grpc_callback.target:
+            return None
+
+        return GrpcCallback(
+            target=grpc_callback.target,
+            service=grpc_callback.service,
+            method=grpc_callback.method,
+        )
+
 
 async def start_grpc_server(operation_queue):
     server = grpc.aio.server()
-    mistify_operations_pb2_grpc.add_MistifyOperationsServicer_to_server(
+    operations_pb2_grpc.add_MistifyOperationsServicer_to_server(
         MistifyOperationsService(operation_queue),
         server,
     )

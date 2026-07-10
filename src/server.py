@@ -102,6 +102,7 @@ app_state.config = {
     "PROCESSING_TRANSLATE_TO_ENGLISH": os.getenv("PROCESSING_TRANSLATE_TO_ENGLISH", "true").lower() in {"1", "true", "yes"},
     "PROCESSING_FETCH_URL": os.getenv("PROCESSING_FETCH_URL", "https://api.cronkite.fifthbell.com/processing/fetch"),
     "PROCESSING_POST_URL": os.getenv("PROCESSING_POST_URL", "https://n8n.gaulatti.com/webhook/727a2ba4-a274-462c-91cc-8d2abc7bb81e"),
+    "MONITOR_GRPC_CALLBACK_TARGET": os.getenv("MONITOR_GRPC_CALLBACK_TARGET", "localhost:50055"),
     "PROCESSING_IDLE_SLEEP_SECONDS": float(os.getenv("PROCESSING_IDLE_SLEEP_SECONDS", "5")),
     "PROCESSING_HTTP_TIMEOUT_SECONDS": float(os.getenv("PROCESSING_HTTP_TIMEOUT_SECONDS", "30")),
     "HTTP_PORT": int(os.getenv("HTTP_PORT", "8000")),

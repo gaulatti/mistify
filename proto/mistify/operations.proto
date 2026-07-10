@@ -5,7 +5,6 @@ package mistify.operations;
 import "google/protobuf/struct.proto";
 
 service MistifyOperations {
-  rpc AnalyzePost (AnalyzePostRequest) returns (EnqueueAnalysisResponse);
   rpc AnalyzePosts (AnalyzePostsRequest) returns (EnqueueAnalysisResponse);
   rpc DetectLanguage (DetectLanguageRequest) returns (EnqueueAnalysisResponse);
   rpc ClassifyContent (ClassifyContentRequest) returns (EnqueueAnalysisResponse);
@@ -14,9 +13,19 @@ service MistifyOperations {
   rpc ClusterPost (ClusterPostRequest) returns (EnqueueAnalysisResponse);
 }
 
+service MonitorIngest {
+  rpc ReceiveAnalysisResult (AnalysisResultRequest) returns (AnalysisResultResponse);
+}
+
 message HttpCallback {
   string url = 1;
   map<string, string> headers = 2;
+}
+
+message GrpcCallback {
+  string target = 1;
+  string service = 2;
+  string method = 3;
 }
 
 message OperationContext {
@@ -26,20 +35,18 @@ message OperationContext {
   string trace_id = 4;
 }
 
-message AnalyzePostRequest {
+message AnalyzePostItem {
   google.protobuf.Struct post = 1;
   string idempotency_key = 2;
-  OperationContext context = 3;
-  google.protobuf.Struct metadata = 4;
-  HttpCallback callback = 5;
 }
 
 message AnalyzePostsRequest {
-  repeated google.protobuf.Struct posts = 1;
-  string idempotency_key = 2;
-  OperationContext context = 3;
-  google.protobuf.Struct metadata = 4;
-  HttpCallback callback = 5;
+  repeated AnalyzePostItem items = 1;
+  OperationContext context = 2;
+  google.protobuf.Struct metadata = 3;
+  HttpCallback callback = 4;
+  GrpcCallback grpc_callback = 5;
+  repeated string classification_labels = 6;
 }
 
 message DetectLanguageRequest {
@@ -84,9 +91,27 @@ message ClusterPostRequest {
   OperationContext context = 3;
   google.protobuf.Struct metadata = 4;
   HttpCallback callback = 5;
+  GrpcCallback grpc_callback = 6;
 }
 
 message EnqueueAnalysisResponse {
   string operation_id = 1;
   bool queued = 2;
+}
+
+message AnalysisResultItem {
+  string hash = 1;
+  google.protobuf.Struct payload = 2;
+}
+
+message AnalysisResultRequest {
+  string operation_id = 1;
+  string operation_type = 2;
+  string status = 3;
+  repeated AnalysisResultItem items = 4;
+  string error = 5;
+}
+
+message AnalysisResultResponse {
+  bool ok = 1;
 }

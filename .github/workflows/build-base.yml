@@ -91,6 +91,7 @@ jobs:
               -e GRPC_PORT=${{ vars.GRPC_PORT }} \
               -e VALKEY_HOST=${{ vars.VALKEY_HOST }} \
               -e VALKEY_PORT=${{ vars.VALKEY_PORT }} \
+              -e MONITOR_GRPC_CALLBACK_TARGET=${{ vars.MONITOR_GRPC_CALLBACK_TARGET }} \
               -v mistify-cache:/home/appuser/.cache \
               -v mistify-models:/home/appuser/.hf_models \
               ghcr.io/${{ github.repository }}:latest

@@ -21,20 +21,24 @@ Mistify exposes a unified FastAPI service with endpoints for each helper:
 - `/classify` — Content classification
 - `/translate` — Translation
 - `/cluster` — Text clustering
-- `/analyze` — Unified multi-step analysis
 - `/embed` — Generate sentence embeddings
 - `/health` — Health check
 - `/metrics` — Prometheus metrics for monitoring
 
-Mistify also exposes gRPC on port `50000` for new async operation submission:
+> **Note:** `/analyze` is not exposed as an HTTP endpoint. Use the gRPC `AnalyzePosts` method for unified multi-step analysis.
 
-- `mistify.operations.MistifyOperations/AnalyzePost`
+Mistify also exposes gRPC on port `50000` for async operation submission and callback delivery:
+
+**Mistify operations:**
 - `mistify.operations.MistifyOperations/AnalyzePosts`
 - `mistify.operations.MistifyOperations/DetectLanguage`
 - `mistify.operations.MistifyOperations/ClassifyContent`
 - `mistify.operations.MistifyOperations/TranslateText`
 - `mistify.operations.MistifyOperations/EmbedText`
 - `mistify.operations.MistifyOperations/ClusterPost`
+
+**Monitor callback (called by Mistify):**
+- `mistify.operations.MonitorIngest/ReceiveAnalysisResult`
 
 For detailed API documentation, including request/response examples, please see the [API Documentation on the Wiki](https://github.com/gaulatti/mistify/wiki/Text-Clustering-API-Documentation).
 
@@ -123,7 +127,8 @@ Configure the service using the following environment variables:
 - `MIN_MARGIN`: Minimum margin between top two scores (default: `0.10`)
 - `TRANSFORMERS_OFFLINE`: Set to `1` to enforce offline mode for Hugging Face models (default in Docker).
 - `HTTP_PORT`: HTTP server port used by FastAPI and Docker/Compose port mapping.
-- `GRPC_PORT`: gRPC published port used by Docker/Compose mapping (default service listener is `50000`).
+- `GRPC_PORT`: gRPC port used by the service listener and Docker/Compose mapping (default: `50000`).
+- `MONITOR_GRPC_CALLBACK_TARGET`: gRPC target (host:port) where Mistify sends `AnalyzePosts` results back to monitor (default: `localhost:50055`).
 - `DOCKER_PLATFORM`: Optional Docker platform override for Compose builds/runs (default: `linux/amd64`). Useful on Apple Silicon when base images are amd64-only.
 - `LOAD_MODELS_ON_STARTUP`: Set to `false` to start the API without eagerly loading models (fast boot; model-backed endpoints can return `503` until models are loaded by your runtime strategy).
 - `TRANSLATION_ENABLED`: Set to `false` to skip loading translation models at startup (faster boot; `/translate` and translation in `/analyze` will return fallback/unavailable behavior).

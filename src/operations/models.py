@@ -19,6 +19,12 @@ class HttpCallback(BaseModel):
         return method
 
 
+class GrpcCallback(BaseModel):
+    target: str
+    service: str = "monitor.ingest.MonitorIngest"
+    method: str = "ReceiveAnalysisResult"
+
+
 class OperationOptions(BaseModel):
     priority: int = 0
     max_attempts: int = 3
@@ -40,6 +46,7 @@ class OperationEnvelope(BaseModel):
     context: OperationContext = Field(default_factory=OperationContext)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     callback: Optional[HttpCallback] = None
+    grpc_callback: Optional[GrpcCallback] = None
     options: OperationOptions = Field(default_factory=OperationOptions)
     idempotency_key: Optional[str] = None
     submitted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

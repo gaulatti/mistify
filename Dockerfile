@@ -6,6 +6,9 @@
 # Build base image with: docker build -f Dockerfile.base -t mistify-base .
 FROM ghcr.io/gaulatti/mistify-base:latest
 
+# Expose HTTP and gRPC ports
+EXPOSE 8000 50000
+
 # Copy application source code
 COPY --chown=appuser:appuser src ./src
 

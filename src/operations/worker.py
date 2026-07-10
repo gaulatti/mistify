@@ -3,10 +3,12 @@ import logging
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
+import grpc
 import httpx
 from pydantic import ValidationError
 
 from src.endpoints import analysis, classification, clustering, embedding, language, translation
+from src.grpc.mistify import operations_pb2, operations_pb2_grpc
 from src.models import (
     ClassificationRequest,
     EmbeddingItem,
@@ -69,7 +71,7 @@ class OperationWorker:
             await self._deliver_callback(envelope, "failed", error=str(exc))
 
     async def _run_operation(self, envelope: OperationEnvelope) -> Dict[str, Any]:
-        if envelope.operation_type in {"analyze_post", "analyze_posts"}:
+        if envelope.operation_type == "analyze_posts":
             return await self._analyze_posts(envelope)
         if envelope.operation_type == "detect_language":
             return await self._detect_language(envelope)
@@ -88,20 +90,31 @@ class OperationWorker:
         return SimpleNamespace(state=SimpleNamespace(app_state=self.app_state))
 
     async def _analyze_posts(self, envelope: OperationEnvelope) -> Dict[str, Any]:
-        items = self._extract_items(envelope.payload)
+        wrappers = self._extract_items(envelope.payload)
+        posts = [wrapper["post"] for wrapper in wrappers]
 
         try:
             analysis_request = UnifiedAnalysisRequest(
-                items=items,
+                items=posts,
                 translate_to_english=self.app_state.config["PROCESSING_TRANSLATE_TO_ENGLISH"],
+                classification_labels=envelope.payload.get("classification_labels") or None,
             )
         except ValidationError as exc:
             raise ValueError(f"Invalid analyze payload: {exc}") from exc
 
         response = await analysis.unified_analysis(analysis_request, self._request())
-        return {
-            "items": self._merge_processed_items(items, response),
-        }
+        merged_posts = self._merge_processed_items(posts, response)
+
+        enriched_items = []
+        for wrapper, merged_post in zip(wrappers, merged_posts):
+            enriched_items.append(
+                {
+                    "post": merged_post,
+                    "idempotency_key": wrapper.get("idempotency_key"),
+                }
+            )
+
+        return {"items": enriched_items}
 
     async def _detect_language(self, envelope: OperationEnvelope) -> Dict[str, Any]:
         response = await language.detect_language(
@@ -135,7 +148,13 @@ class OperationWorker:
             PostData.model_validate(envelope.payload),
             self._request(),
         )
-        return response.model_dump()
+        result = response.model_dump()
+        return {
+            "items": [{
+                "post": result,
+                "idempotency_key": envelope.idempotency_key or "",
+            }]
+        }
 
     def _extract_items(self, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
         if isinstance(payload.get("items"), list):
@@ -182,6 +201,9 @@ class OperationWorker:
             if res.urgency is not None:
                 base["urgency"] = res.urgency
 
+            if res.embedding is not None:
+                base["embeddings"] = res.embedding
+
             if res.timings:
                 base["analysis_timings"] = res.timings.model_dump()
 
@@ -197,9 +219,23 @@ class OperationWorker:
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
     ) -> None:
-        if envelope.callback is None:
+        if envelope.grpc_callback:
+            await self._deliver_grpc_callback(envelope, status, result, error)
             return
 
+        if envelope.callback:
+            await self._deliver_http_callback(envelope, status, result, error)
+            return
+
+        logger.debug("No callback configured for operation %s", envelope.operation_id)
+
+    async def _deliver_http_callback(
+        self,
+        envelope: OperationEnvelope,
+        status: str,
+        result: Optional[Dict[str, Any]],
+        error: Optional[str],
+    ) -> None:
         payload = {
             "operationId": envelope.operation_id,
             "operationType": envelope.operation_type,
@@ -218,3 +254,59 @@ class OperationWorker:
                 json=payload,
             )
             response.raise_for_status()
+
+    async def _deliver_grpc_callback(
+        self,
+        envelope: OperationEnvelope,
+        status: str,
+        result: Optional[Dict[str, Any]],
+        error: Optional[str],
+    ) -> None:
+        grpc_callback = envelope.grpc_callback
+        items = self._build_analysis_result_items(result)
+
+        request = operations_pb2.AnalysisResultRequest(
+            operation_id=envelope.operation_id,
+            operation_type=envelope.operation_type,
+            status=status,
+            items=items,
+            error=error or "",
+        )
+
+        async with grpc.aio.insecure_channel(grpc_callback.target) as channel:
+            stub = operations_pb2_grpc.MonitorIngestStub(channel)
+            response = await stub.ReceiveAnalysisResult(
+                request,
+                timeout=CALLBACK_TIMEOUT_SECONDS,
+            )
+            if not response.ok:
+                raise RuntimeError(f"Monitor rejected callback: ok={response.ok}")
+
+    def _build_analysis_result_items(
+        self, result: Optional[Dict[str, Any]]
+    ) -> List[operations_pb2.AnalysisResultItem]:
+        if not result:
+            return []
+
+        items = result.get("items") or []
+        pb_items = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+
+            post = item.get("post") if isinstance(item.get("post"), dict) else item
+            hash_value = item.get("idempotency_key") or post.get("hash") or ""
+
+            from google.protobuf.struct_pb2 import Struct
+            payload = Struct()
+            if isinstance(post, dict):
+                payload.update(post)
+
+            pb_items.append(
+                operations_pb2.AnalysisResultItem(
+                    hash=hash_value,
+                    payload=payload,
+                )
+            )
+
+        return pb_items
