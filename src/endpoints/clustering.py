@@ -280,7 +280,7 @@ async def cluster_texts(req: PostData, http_request: Request):
                 raise HTTPException(status_code=500, detail=f"Clustering failed: {str(e)}")
 
     processing_time = time.time() - start_time
-    logger.info("✓ Clustering completed: %d posts -> %d groups in %.2fs", len(texts), len(result["groups"]), processing_time)
+    logger.debug("Clustering completed: %d posts -> %d groups in %.2fs", len(texts), len(result["groups"]), processing_time)
     
     # Find which cluster contains the main post (index 0)
     main_post_group = None

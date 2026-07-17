@@ -294,7 +294,7 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                 # For Seamless M4T pipeline, use generation parameters
                 input_tokens = len(text_to_translate.split())
 
-                logger.info(
+                logger.debug(
                     "Seamless translation: %s -> %s, input_words=%d, chars=%d",
                     mapped_source,
                     mapped_target,
@@ -389,7 +389,7 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-            logger.info(f"✓ Translation successful {attempt_name}: {len(text_to_translate.split())} words")
+            logger.debug(f"Translation successful {attempt_name}: {len(text_to_translate.split())} words")
             return result
 
         except Exception as e:
@@ -401,14 +401,14 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
     # Strategy 1: Try with full text first (if not extremely long)
     words = text.split()
     if len(words) <= max_input_tokens:
-        logger.info(f"Attempting translation with full text ({len(words)} words)")
+        logger.debug(f"Attempting translation with full text ({len(words)} words)")
         result = _attempt_translation(text, "(full text)")
         if result is not None:
             return result
 
     # Strategy 2: Smart truncation to sentence boundaries
     if len(words) > max_input_tokens:
-        logger.info(f"Text too long ({len(words)} words), attempting smart truncation to {max_input_tokens} words")
+        logger.debug(f"Text too long ({len(words)} words), attempting smart truncation to {max_input_tokens} words")
 
         # Try to truncate at sentence boundaries
         sentences = text.split('. ')
@@ -428,7 +428,7 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
             if not smart_truncated.endswith('.'):
                 smart_truncated += '.'
 
-            logger.info(f"Smart truncation: {len(words)} -> {len(smart_truncated.split())} words")
+            logger.debug(f"Smart truncation: {len(words)} -> {len(smart_truncated.split())} words")
             result = _attempt_translation(smart_truncated, "(smart truncated)")
             if result is not None:
                 return result
@@ -535,4 +535,3 @@ def _embed_sync(embedder, texts: List[str], batch_size: int, normalize: bool):
         torch.cuda.empty_cache()
 
     return vecs
-

@@ -313,7 +313,12 @@ def build_clustering_graph(
     entity_context_weight = config.get("entity_context_weight", CLUSTERING_ENTITY_CONTEXT_WEIGHT) if config else CLUSTERING_ENTITY_CONTEXT_WEIGHT
     event_specific_mode = config.get("event_specific_mode", CLUSTERING_EVENT_SPECIFIC_MODE) if config else CLUSTERING_EVENT_SPECIFIC_MODE
 
-    logger.info(f"🔧 Building graph for event-specific clustering: sim_entity={sim_entity}, sim_global={sim_global}, event_mode={event_specific_mode}")
+    logger.debug(
+        "Building graph for event-specific clustering: sim_entity=%s, sim_global=%s, event_mode=%s",
+        sim_entity,
+        sim_global,
+        event_specific_mode,
+    )
 
     docs = list(
         tqdm(nlp.pipe(texts, batch_size=64), total=len(texts), desc="spaCy", disable=not show_bar)
@@ -323,7 +328,7 @@ def build_clustering_graph(
     precomputed_entities = config.get("precomputed_entities") if config else None
 
     if precomputed_entities and len(precomputed_entities) == len(texts):
-        logger.info(f"🔧 Using precomputed entities for {len(texts)} texts")
+        logger.debug("Using precomputed entities for %d texts", len(texts))
         entities = precomputed_entities
         entities_typed = get_entities_with_types(docs, embedder)
     else:
@@ -365,7 +370,7 @@ def build_clustering_graph(
                         missing_indices.append(idx)
 
                 if not valid_vectors:
-                    logger.info("No usable precomputed embeddings found; encoding all %d texts", len(texts))
+                    logger.debug("No usable precomputed embeddings found; encoding all %d texts", len(texts))
                     emb = embedder.encode(
                         texts,
                         batch_size=64,
@@ -393,7 +398,7 @@ def build_clustering_graph(
                         norms = torch.norm(valid_tensor, dim=1)
                         avg_norm = float(torch.mean(norms)) if norms.numel() else 1.0
                         if abs(avg_norm - 1.0) > 0.05:
-                            logger.info("Normalizing provided embeddings (avg norm %.3f)", avg_norm)
+                            logger.debug("Normalizing provided embeddings (avg norm %.3f)", avg_norm)
                             valid_tensor = torch.nn.functional.normalize(valid_tensor, p=2, dim=1)
 
                         # Compose final tensor with provided vectors + computed fallbacks.
@@ -612,7 +617,12 @@ def split_large_communities(comm, sims, config: Dict = None, depth: int = 0):
 
     # STRICT ENFORCEMENT: If average similarity is too low, split into individual items
     if avg < avg_sim_min:
-        logger.info(f"🔧 Splitting community of size {len(comm)} due to low avg similarity ({avg:.3f} < {avg_sim_min})")
+        logger.debug(
+            "Splitting community of size %d due to low avg similarity (%.3f < %.3f)",
+            len(comm),
+            avg,
+            avg_sim_min,
+        )
         if depth > 3:  # Prevent infinite recursion
             return [[item] for item in comm]
 

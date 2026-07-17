@@ -61,14 +61,16 @@ class OperationWorker:
 
         try:
             result = await self._run_operation(envelope)
-            await self._deliver_callback(envelope, "succeeded", result=result)
         except Exception as exc:
             logger.error(
                 "Operation %s failed: %s",
                 envelope.operation_id,
                 exc,
             )
-            await self._deliver_callback(envelope, "failed", error=str(exc))
+            await self._deliver_callback_safely(envelope, "failed", error=str(exc))
+            return
+
+        await self._deliver_callback_safely(envelope, "succeeded", result=result)
 
     async def _run_operation(self, envelope: OperationEnvelope) -> Dict[str, Any]:
         if envelope.operation_type == "analyze_posts":
@@ -228,6 +230,51 @@ class OperationWorker:
             return
 
         logger.debug("No callback configured for operation %s", envelope.operation_id)
+
+    async def _deliver_callback_safely(
+        self,
+        envelope: OperationEnvelope,
+        status: str,
+        *,
+        result: Optional[Dict[str, Any]] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        try:
+            await self._deliver_callback(envelope, status, result=result, error=error)
+        except Exception as exc:
+            logger.error(
+                "Operation %s %s callback delivery failed (%s): %s",
+                envelope.operation_id,
+                status,
+                self._callback_target(envelope),
+                self._format_callback_error(exc),
+            )
+            logger.debug(
+                "Callback delivery traceback for operation %s",
+                envelope.operation_id,
+                exc_info=True,
+            )
+
+    def _callback_target(self, envelope: OperationEnvelope) -> str:
+        if envelope.grpc_callback:
+            return f"grpc://{envelope.grpc_callback.target}"
+        if envelope.callback:
+            return envelope.callback.url
+        return "none"
+
+    def _format_callback_error(self, exc: Exception) -> str:
+        if isinstance(exc, grpc.aio.AioRpcError):
+            code = exc.code()
+            code_name = getattr(code, "name", str(code))
+            return f"{code_name}: {exc.details()}"
+
+        if isinstance(exc, httpx.HTTPStatusError):
+            return f"HTTP {exc.response.status_code}: {exc.response.text[:200]}"
+
+        if isinstance(exc, httpx.RequestError):
+            return str(exc)
+
+        return str(exc)
 
     async def _deliver_http_callback(
         self,

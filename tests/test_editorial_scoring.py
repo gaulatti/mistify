@@ -111,6 +111,19 @@ def test_unified_analysis_item_drops_non_string_categories():
     assert item.categories == ["آسیای غربی", "Politics", "World"]
 
 
+def test_unified_analysis_item_normalizes_structured_id():
+    item = UnifiedAnalysisItemRequest.model_validate({
+        "id": {"$": {"isPermaLink": "false"}},
+        "source": "rss",
+        "uri": "https://example.com/story",
+        "content": "Example content",
+        "createdAt": "2026-07-17T00:00:00Z",
+        "hash": "hash-1",
+    })
+
+    assert item.id == '{"$":{"isPermaLink":"false"}}'
+
+
 def test_scores_from_editorial_result_weighted_distribution():
     # 70% major breaking, 30% important story -> weighted average
     resp = ClassificationResponse(

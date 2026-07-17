@@ -1,5 +1,7 @@
 # service/src/models.py
 
+import json
+
 from pydantic import BaseModel, Field, field_validator
 from typing import Any, Optional, List, Dict, Union
 
@@ -123,6 +125,24 @@ def _normalize_string_list(value: Any) -> Any:
     return normalized
 
 
+def _normalize_id(value: Any) -> Any:
+    if value is None or isinstance(value, str):
+        return value
+
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+
+    if isinstance(value, dict):
+        for key in ("id", "guid", "uri", "url", "link", "_"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+
+        return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+    return str(value)
+
+
 class UnifiedAnalysisItemRequest(BaseModel):
     id: str
     source: str
@@ -152,6 +172,11 @@ class UnifiedAnalysisItemRequest(BaseModel):
     @classmethod
     def normalize_media(cls, value: Any) -> Any:
         return _normalize_media_to_urls(value)
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def normalize_id(cls, value: Any) -> Any:
+        return _normalize_id(value)
 
     @field_validator("categories", "labels", "classification_labels", mode="before")
     @classmethod
@@ -302,4 +327,3 @@ class PostClusteringResponse(BaseModel):
     group: PostClusterGroup  # Single group instead of list
     processing_time: Optional[float] = None
     debug_info: Optional[Dict] = None
-
