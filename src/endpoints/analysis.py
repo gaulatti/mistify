@@ -455,7 +455,7 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
         total_ms = (time.perf_counter() - analysis_started_at) * 1000.0
         avg_item_ms = total_ms / len(req.items) if req.items else 0.0
 
-        if total_ms >= 1000.0:
+        if total_ms >= app_state.config.get("ANALYZE_SLOW_MS", 5000.0):
             logger.warning(
                 "Slow /analyze batch: items=%d total_ms=%.2f avg_item_ms=%.2f "
                 "language_detection_ms=%.2f translation_ms=%.2f "

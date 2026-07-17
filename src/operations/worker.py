@@ -53,7 +53,7 @@ class OperationWorker:
 
     async def process(self, queued: QueuedOperation) -> None:
         envelope = queued.envelope
-        logger.info(
+        logger.debug(
             "Processing operation %s (%s)",
             envelope.operation_id,
             envelope.operation_type,

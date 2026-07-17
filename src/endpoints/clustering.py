@@ -119,7 +119,7 @@ def _filter_candidate_posts(
     if len(filtered) > max_candidates:
         filtered = filtered[:max_candidates]
 
-    logger.info(
+    logger.debug(
         "🔍 Pre-filter: %d candidates -> %d unique -> %d after similarity filter (min=%.2f, max=%d)",
         len(candidates),
         len(unique_candidates),
@@ -138,7 +138,7 @@ async def cluster_texts(req: PostData, http_request: Request):
         raise HTTPException(status_code=503, detail="Clustering models not available")
 
     # Debug: Log the incoming request structure
-    logger.info(f"🔍 Clustering request - Post ID: {req.id}, Similar posts: {type(req.similarPosts)}")
+    logger.debug("Clustering request: post_id=%s similar_posts_type=%s", req.id, type(req.similarPosts))
 
     # Pre-filter candidates to remove low-similarity noise before graph clustering.
     # This keeps the graph focused on plausible same-event posts and reduces both
@@ -159,19 +159,19 @@ async def cluster_texts(req: PostData, http_request: Request):
 
     # Add filtered similar posts to the clustering candidates
     if filtered_candidates:
-        logger.info(f"🔍 Processing {len(filtered_candidates)} filtered similar posts")
+        logger.debug("Processing %d filtered similar posts", len(filtered_candidates))
         for similar_post in filtered_candidates:
             texts.append(similar_post.content)
             all_posts.append(similar_post)
     else:
-        logger.warning(f"⚠️ No similar posts passed pre-filter for post {req.id}")
+        logger.debug("No similar posts passed pre-filter for post %s", req.id)
     
     # Track batch size and posts processed
     batch_size = len(texts)
     metrics.POSTS_BATCH_SIZE.labels(endpoint="cluster").observe(batch_size)
     metrics.POSTS_PROCESSED_TOTAL.labels(endpoint="cluster").inc(batch_size)
     
-    logger.info(f"🔍 Total texts for clustering: {len(texts)}")
+    logger.debug("Total texts for clustering: %d", len(texts))
     
     # If we only have the main post (no similar posts), return single cluster
     if len(texts) == 1:
@@ -228,7 +228,7 @@ async def cluster_texts(req: PostData, http_request: Request):
     has_complete_embeddings = all(emb is not None for emb in precomputed_embeddings)
     has_category_data = any(len(cats) > 0 for cats in precomputed_categories)
 
-    logger.info(
+    logger.debug(
         "🔍 Precomputed data: embeddings_any=%s embeddings_complete=%s categories=%s",
         has_any_embeddings,
         has_complete_embeddings,

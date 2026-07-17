@@ -190,7 +190,7 @@ async def translate_text(req: TranslationRequest, http_request: Request):
                 logger.warning("Translation result was empty, returning original text")
                 translated_text = req.text
 
-            logger.info("✓ Translation completed: %d -> %d chars", len(req.text), len(translated_text))
+            logger.debug("Translation completed: %d -> %d chars", len(req.text), len(translated_text))
             return TranslationResponse(
                 original_text=req.text,
                 translated_text=translated_text,

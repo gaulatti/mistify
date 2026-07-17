@@ -15,7 +15,7 @@ async def run_in_executor(loop, executor, func, *args):
 
 def _cluster_sync(texts: List[str], nlp, embedder, classifier, config: Dict = None, debug: bool = False):
     """Synchronous clustering function for thread execution"""
-    logger.info(f"� Starting clustering with {len(texts)} texts")
+    logger.debug("Starting clustering with %d texts", len(texts))
     from .clustering import build_clustering_graph, split_large_communities
     from src.models import ClusterGroup
     import itertools
@@ -26,22 +26,22 @@ def _cluster_sync(texts: List[str], nlp, embedder, classifier, config: Dict = No
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        logger.info("🔧 Building clustering graph...")
+        logger.debug("Building clustering graph")
         G, sims, why, topics, entities = build_clustering_graph(texts, nlp, embedder, classifier, show_bar=debug,
                                                                 config=config)
-        logger.info(f"🔧 Graph built with {len(G.nodes())} nodes and {len(G.edges())} edges")
+        logger.debug("Graph built with %d nodes and %d edges", len(G.nodes()), len(G.edges()))
         
         # Check if graph is empty (no connections between texts)
         if len(G.nodes()) == 0 or len(G.edges()) == 0:
-            logger.warning("⚠️ Empty graph detected - no connections between texts, creating individual clusters")
+            logger.debug("Empty graph detected; creating individual clusters")
             # Create individual clusters for each text
             comms = [frozenset([i]) for i in range(len(texts))]
         else:
-            logger.info("🔧 Running Louvain community detection...")
+            logger.debug("Running Louvain community detection")
             comms = louvain_communities(G, weight=None, resolution=1.0)
-        logger.info(f"🔧 Found {len(comms)} initial communities")
+        logger.debug("Found %d initial communities", len(comms))
         
-        logger.info("🔧 Splitting large communities...")
+        logger.debug("Splitting large communities")
         groups = []
         for i, c in enumerate(comms):
             logger.debug(f"🔧 Processing community {i} with {len(c)} members")
@@ -55,12 +55,12 @@ def _cluster_sync(texts: List[str], nlp, embedder, classifier, config: Dict = No
                 groups.append(list(c))
         
         groups.sort(key=lambda g: (-len(g), min(g)))
-        logger.info(f"🔧 Final result: {len(groups)} groups after splitting")
+        logger.debug("Final result: %d groups after splitting", len(groups))
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        logger.info("🔧 Creating cluster groups...")
+        logger.debug("Creating cluster groups")
         cluster_groups = []
         for gid, idx in enumerate(groups):
             try:
@@ -535,5 +535,4 @@ def _embed_sync(embedder, texts: List[str], batch_size: int, normalize: bool):
         torch.cuda.empty_cache()
 
     return vecs
-
 

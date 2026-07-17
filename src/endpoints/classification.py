@@ -84,7 +84,7 @@ async def classify_content(req: ClassificationRequest, http_request: Request):
             app_state.config["MIN_MARGIN"]:
         best_label = "uncertain"
 
-    logger.info("✓ Classification: label=%s, score=%.2f", best_label, best_score)
+    logger.debug("Classification: label=%s, score=%.2f", best_label, best_score)
 
     duration = time.perf_counter() - op_start
     metrics.MODEL_OPERATION_TOTAL.labels(operation="classify", outcome=op_outcome).inc()

@@ -27,7 +27,7 @@ async def detect_language(req: LanguageDetectionRequest, http_request: Request):
         languages = [label.replace("__label__", "") for label in labels]
         probabilities = [round(float(p), 4) for p in probs]
 
-        logger.info("✓ Language detection completed: %s", languages)
+        logger.debug("Language detection completed: %s", languages)
         return LanguageDetectionResponse(languages=languages, probabilities=probabilities)
     except Exception as e:
         metrics.OPERATION_FAILURES_TOTAL.labels(operation="language_detect", failure_type="exception").inc()

@@ -56,6 +56,7 @@ warnings.filterwarnings("ignore", message="Both `max_new_tokens`.*and `max_lengt
 warnings.filterwarnings("ignore", message="Your input_length.*is bigger than.*max_length")
 warnings.filterwarnings("ignore", message="Setting `pad_token_id`.*to `eos_token_id`")
 warnings.filterwarnings("ignore", message="`resume_download` is deprecated.*", category=FutureWarning)
+warnings.filterwarnings("ignore", message="You seem to be using the pipelines sequentially on GPU.*")
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
 
 # ---- Logging Setup -------------------------------------------------------------
@@ -101,6 +102,7 @@ app_state.config = {
     "CLUSTERING_WORKERS": int(os.getenv("CLUSTERING_WORKERS", "1")),
     "TIMEOUT": int(os.getenv("TIMEOUT", "10")),
     "EMBEDDING_TIMEOUT": int(os.getenv("EMBEDDING_TIMEOUT", "30")),
+    "ANALYZE_SLOW_MS": float(os.getenv("ANALYZE_SLOW_MS", "5000")),
     "PROCESSING_TRANSLATE_TO_ENGLISH": os.getenv("PROCESSING_TRANSLATE_TO_ENGLISH", "true").lower() in {"1", "true", "yes"},
     "MONITOR_GRPC_CALLBACK_TARGET": os.getenv("MONITOR_GRPC_CALLBACK_TARGET", "localhost:50055"),
     "HTTP_PORT": int(os.getenv("HTTP_PORT", "8000")),
@@ -303,4 +305,9 @@ async def stop_processing_loop():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=app_state.config["HTTP_PORT"])
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=app_state.config["HTTP_PORT"],
+        access_log=False,
+    )

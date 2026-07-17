@@ -433,7 +433,7 @@ def build_clustering_graph(
                                 for row_idx, text_idx in enumerate(missing_indices):
                                     emb[text_idx] = missing_emb[row_idx]
                         else:
-                            logger.info("Using %d precomputed embeddings (dim=%d)", len(valid_indices), emb_dim)
+                            logger.debug("Using %d precomputed embeddings (dim=%d)", len(valid_indices), emb_dim)
         except Exception as e:
             logger.warning("Failed to use precomputed embeddings (%s); falling back to encode", e)
             emb = embedder.encode(
@@ -568,10 +568,14 @@ def build_clustering_graph(
             else:
                 edges_rejected_similarity += 1
 
-    logger.info(f"🔧 Event clustering graph complete: {edges_added} edges added, "
-                f"{edges_rejected_topic} rejected by topic, "
-                f"{edges_rejected_entity} rejected by entities, "
-                f"{edges_rejected_similarity} rejected by similarity")
+    logger.debug(
+        "Event clustering graph complete: %d edges added, %d rejected by topic, "
+        "%d rejected by entities, %d rejected by similarity",
+        edges_added,
+        edges_rejected_topic,
+        edges_rejected_entity,
+        edges_rejected_similarity,
+    )
 
     return G, sims, why, topics, entities
 
