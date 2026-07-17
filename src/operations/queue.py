@@ -61,7 +61,7 @@ class OperationQueue:
 
         existing = await self._existing_keys(keys)
         if existing:
-            logger.info("Skipping %d duplicate analyze_posts item(s)", len(existing))
+            logger.debug("Skipping %d duplicate analyze_posts item(s)", len(existing))
 
         remaining_indices = {
             idx for idx, key in keyed_items if key not in existing
@@ -71,7 +71,7 @@ class OperationQueue:
         ]
 
         if not remaining_items:
-            logger.info("All analyze_posts items were duplicates; nothing enqueued")
+            logger.debug("All analyze_posts items were duplicates; nothing enqueued")
             return False
 
         if len(remaining_items) != len(items):

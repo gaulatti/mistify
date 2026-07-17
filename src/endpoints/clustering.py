@@ -93,6 +93,7 @@ def _filter_candidate_posts(
                 batch_size=64,
                 convert_to_numpy=True,
                 normalize_embeddings=True,
+                show_progress_bar=False,
             ).tolist()
         except Exception as e:
             logger.warning("⚠️ Failed to embed candidate posts for pre-filter: %s", e)
@@ -101,6 +102,7 @@ def _filter_candidate_posts(
     idx_to_emb = dict(precomputed)
     for idx, emb in zip(candidate_indices, computed_embeddings):
         idx_to_emb[idx] = emb
+        unique_candidates[idx].embeddings = emb
 
     scored = []
     for idx, candidate in enumerate(unique_candidates):

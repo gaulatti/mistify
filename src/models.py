@@ -98,6 +98,31 @@ def _normalize_media_to_urls(value: Any) -> Any:
     return normalized
 
 
+def _normalize_string_list(value: Any) -> Any:
+    """Keep only useful string labels from noisy upstream arrays."""
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+
+    if not isinstance(value, list):
+        return []
+
+    normalized: List[str] = []
+    for item in value:
+        if isinstance(item, str):
+            label = item.strip()
+            if label:
+                normalized.append(label)
+        elif isinstance(item, dict):
+            label = item.get("name") or item.get("label") or item.get("slug") or item.get("_")
+            if isinstance(label, str) and label.strip():
+                normalized.append(label.strip())
+
+    return normalized
+
+
 class UnifiedAnalysisItemRequest(BaseModel):
     id: str
     source: str
@@ -127,6 +152,11 @@ class UnifiedAnalysisItemRequest(BaseModel):
     @classmethod
     def normalize_media(cls, value: Any) -> Any:
         return _normalize_media_to_urls(value)
+
+    @field_validator("categories", "labels", "classification_labels", mode="before")
+    @classmethod
+    def normalize_string_lists(cls, value: Any) -> Any:
+        return _normalize_string_list(value)
 
 
 class UnifiedAnalysisRequest(BaseModel):
@@ -272,6 +302,4 @@ class PostClusteringResponse(BaseModel):
     group: PostClusterGroup  # Single group instead of list
     processing_time: Optional[float] = None
     debug_info: Optional[Dict] = None
-
-
 

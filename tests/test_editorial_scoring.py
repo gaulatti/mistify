@@ -93,6 +93,24 @@ def test_scores_from_editorial_result(label, newsworthiness, urgency):
     assert u == urgency
 
 
+def test_unified_analysis_item_drops_non_string_categories():
+    item = UnifiedAnalysisItemRequest.model_validate({
+        "id": "post-1",
+        "source": "rss",
+        "uri": "https://example.com/story",
+        "content": "Example content",
+        "createdAt": "2026-07-17T00:00:00Z",
+        "hash": "hash-1",
+        "categories": [
+            {"$": {"domain": "west_asia"}, "_": "آسیای غربی"},
+            {"name": "Politics"},
+            "World",
+        ],
+    })
+
+    assert item.categories == ["آسیای غربی", "Politics", "World"]
+
+
 def test_scores_from_editorial_result_weighted_distribution():
     # 70% major breaking, 30% important story -> weighted average
     resp = ClassificationResponse(

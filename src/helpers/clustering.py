@@ -134,7 +134,12 @@ def discover_aliases(
 
     clean = [scrub_text(r) for r in raw]
     embs = (
-        embedder.encode(clean, convert_to_tensor=True, normalize_embeddings=True)
+        embedder.encode(
+            clean,
+            convert_to_tensor=True,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
         .cpu()
         .numpy()
     )
@@ -340,7 +345,13 @@ def build_clustering_graph(
                     len(pre_embs),
                     len(texts),
                 )
-                emb = embedder.encode(texts, batch_size=64, convert_to_tensor=True, normalize_embeddings=True)
+                emb = embedder.encode(
+                    texts,
+                    batch_size=64,
+                    convert_to_tensor=True,
+                    normalize_embeddings=True,
+                    show_progress_bar=False,
+                )
             else:
                 valid_indices = []
                 valid_vectors = []
@@ -355,13 +366,25 @@ def build_clustering_graph(
 
                 if not valid_vectors:
                     logger.info("No usable precomputed embeddings found; encoding all %d texts", len(texts))
-                    emb = embedder.encode(texts, batch_size=64, convert_to_tensor=True, normalize_embeddings=True)
+                    emb = embedder.encode(
+                        texts,
+                        batch_size=64,
+                        convert_to_tensor=True,
+                        normalize_embeddings=True,
+                        show_progress_bar=False,
+                    )
                 else:
                     # Ensure all provided vectors share the same dimensionality.
                     dims = {len(v) for v in valid_vectors}
                     if len(dims) != 1:
                         logger.warning("Provided embeddings have inconsistent dimensions; recomputing all.")
-                        emb = embedder.encode(texts, batch_size=64, convert_to_tensor=True, normalize_embeddings=True)
+                        emb = embedder.encode(
+                            texts,
+                            batch_size=64,
+                            convert_to_tensor=True,
+                            normalize_embeddings=True,
+                            show_progress_bar=False,
+                        )
                     else:
                         emb_dim = next(iter(dims))
                         valid_tensor = torch.tensor(valid_vectors, dtype=torch.float32)
@@ -380,7 +403,7 @@ def build_clustering_graph(
 
                         if missing_indices:
                             missing_texts = [texts[i] for i in missing_indices]
-                            logger.info(
+                            logger.debug(
                                 "Using %d provided embeddings; computing %d missing embeddings",
                                 len(valid_indices),
                                 len(missing_indices),
@@ -390,6 +413,7 @@ def build_clustering_graph(
                                 batch_size=64,
                                 convert_to_tensor=True,
                                 normalize_embeddings=True,
+                                show_progress_bar=False,
                             )
 
                             if missing_emb.shape[1] != emb_dim:
@@ -403,6 +427,7 @@ def build_clustering_graph(
                                     batch_size=64,
                                     convert_to_tensor=True,
                                     normalize_embeddings=True,
+                                    show_progress_bar=False,
                                 )
                             else:
                                 for row_idx, text_idx in enumerate(missing_indices):
@@ -411,9 +436,21 @@ def build_clustering_graph(
                             logger.info("Using %d precomputed embeddings (dim=%d)", len(valid_indices), emb_dim)
         except Exception as e:
             logger.warning("Failed to use precomputed embeddings (%s); falling back to encode", e)
-            emb = embedder.encode(texts, batch_size=64, convert_to_tensor=True, normalize_embeddings=True)
+            emb = embedder.encode(
+                texts,
+                batch_size=64,
+                convert_to_tensor=True,
+                normalize_embeddings=True,
+                show_progress_bar=False,
+            )
     else:
-        emb = embedder.encode(texts, batch_size=64, convert_to_tensor=True, normalize_embeddings=True)
+        emb = embedder.encode(
+            texts,
+            batch_size=64,
+            convert_to_tensor=True,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
 
     sims = util.cos_sim(emb, emb).cpu().numpy()
 

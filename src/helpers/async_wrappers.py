@@ -508,6 +508,7 @@ def _embed_sync(embedder, texts: List[str], batch_size: int, normalize: bool):
             batch_size=batch_size,
             normalize_embeddings=normalize,
             convert_to_numpy=True,
+            show_progress_bar=False,
         ).astype("float32")
 
         # Log output information
@@ -534,6 +535,5 @@ def _embed_sync(embedder, texts: List[str], batch_size: int, normalize: bool):
         torch.cuda.empty_cache()
 
     return vecs
-
 
 
