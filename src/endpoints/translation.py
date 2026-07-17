@@ -142,7 +142,7 @@ async def translate_text(req: TranslationRequest, http_request: Request):
             try:
                 result = await asyncio.wait_for(
                     asyncio.get_running_loop().run_in_executor(
-                        app_state.thread_pool,
+                        app_state.translation_pool,
                         _translate_sync,
                         app_state.translator,
                         req.text,

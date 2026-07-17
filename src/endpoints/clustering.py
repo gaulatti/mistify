@@ -258,7 +258,7 @@ async def cluster_texts(req: PostData, http_request: Request):
             try:
                 result = await asyncio.wait_for(
                     asyncio.get_running_loop().run_in_executor(
-                        app_state.thread_pool,
+                        app_state.clustering_pool,
                         _cluster_sync,
                         texts,
                         app_state.nlp, 

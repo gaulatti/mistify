@@ -142,7 +142,7 @@ async def score_editorial_priority(text: str, http_request: Request) -> Tuple[fl
         async with app_state.editorial_lock:
             result = await asyncio.wait_for(
                 asyncio.get_running_loop().run_in_executor(
-                    app_state.thread_pool,
+                    app_state.classification_pool,
                     _classify_sync,
                     app_state.classifier,
                     text,
@@ -352,21 +352,35 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
 
             try:
                 if app_state.embedder:
-                    emb = await asyncio.wait_for(
-                        asyncio.get_running_loop().run_in_executor(
-                            app_state.thread_pool,
-                            _embed_sync,
-                            app_state.embedder,
-                            [item.content],
-                            64,
-                            True,
-                        ),
-                        timeout=app_state.config["TIMEOUT"],
+                    embedding_timeout = app_state.config.get(
+                        "EMBEDDING_TIMEOUT",
+                        app_state.config["TIMEOUT"],
                     )
+                    async with app_state.embedding_lock:
+                        emb = await asyncio.wait_for(
+                            asyncio.get_running_loop().run_in_executor(
+                                app_state.embedding_pool,
+                                _embed_sync,
+                                app_state.embedder,
+                                [item.content],
+                                64,
+                                True,
+                            ),
+                            timeout=embedding_timeout,
+                        )
                     if emb is not None and emb.shape[0] > 0:
                         item.embedding = emb[0].tolist()
+            except asyncio.TimeoutError:
+                logger.error(
+                    "❌ Embedding generation timed out in unified analysis after %ss",
+                    app_state.config.get("EMBEDDING_TIMEOUT", app_state.config["TIMEOUT"]),
+                )
             except Exception as e:
-                logger.error("❌ Embedding generation failed in unified analysis: %s", e)
+                logger.error(
+                    "❌ Embedding generation failed in unified analysis: %s: %s",
+                    type(e).__name__,
+                    e,
+                )
 
             # Compute newsworthiness and urgency from one editorial scoring pass.
             # This uses the DistilBART zero-shot classifier, which returns a
@@ -384,7 +398,7 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
                     async with app_state.editorial_lock:
                         result = await asyncio.wait_for(
                             asyncio.get_running_loop().run_in_executor(
-                                app_state.thread_pool,
+                                app_state.classification_pool,
                                 _classify_sync,
                                 app_state.classifier,
                                 text_to_classify,

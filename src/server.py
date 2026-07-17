@@ -95,7 +95,12 @@ app_state.config = {
     "MIN_SCORE": float(os.getenv("MIN_SCORE", "0.30")),
     "MIN_MARGIN": float(os.getenv("MIN_MARGIN", "0.10")),
     "POOL_WORKERS": int(os.getenv("POOL_WORKERS", "4")),
+    "CLASSIFICATION_WORKERS": int(os.getenv("CLASSIFICATION_WORKERS", "1")),
+    "TRANSLATION_WORKERS": int(os.getenv("TRANSLATION_WORKERS", "1")),
+    "EMBEDDING_WORKERS": int(os.getenv("EMBEDDING_WORKERS", "1")),
+    "CLUSTERING_WORKERS": int(os.getenv("CLUSTERING_WORKERS", "1")),
     "TIMEOUT": int(os.getenv("TIMEOUT", "10")),
+    "EMBEDDING_TIMEOUT": int(os.getenv("EMBEDDING_TIMEOUT", "30")),
     "PROCESSING_TRANSLATE_TO_ENGLISH": os.getenv("PROCESSING_TRANSLATE_TO_ENGLISH", "true").lower() in {"1", "true", "yes"},
     "MONITOR_GRPC_CALLBACK_TARGET": os.getenv("MONITOR_GRPC_CALLBACK_TARGET", "localhost:50055"),
     "HTTP_PORT": int(os.getenv("HTTP_PORT", "8000")),
@@ -136,6 +141,22 @@ app_state.clustering_lock = asyncio.Lock()
 app_state.embedding_lock = asyncio.Lock()
 app_state.editorial_lock = asyncio.Lock()
 app_state.thread_pool = ThreadPoolExecutor(max_workers=app_state.config["POOL_WORKERS"])
+app_state.classification_pool = ThreadPoolExecutor(
+    max_workers=app_state.config["CLASSIFICATION_WORKERS"],
+    thread_name_prefix="mistify-classification",
+)
+app_state.translation_pool = ThreadPoolExecutor(
+    max_workers=app_state.config["TRANSLATION_WORKERS"],
+    thread_name_prefix="mistify-translation",
+)
+app_state.embedding_pool = ThreadPoolExecutor(
+    max_workers=app_state.config["EMBEDDING_WORKERS"],
+    thread_name_prefix="mistify-embedding",
+)
+app_state.clustering_pool = ThreadPoolExecutor(
+    max_workers=app_state.config["CLUSTERING_WORKERS"],
+    thread_name_prefix="mistify-clustering",
+)
 
 
 def _create_redis_client(config):
@@ -269,6 +290,14 @@ async def stop_processing_loop():
         except asyncio.CancelledError:
             pass
     await app_state.redis_client.aclose()
+    for executor in (
+        app_state.thread_pool,
+        app_state.classification_pool,
+        app_state.translation_pool,
+        app_state.embedding_pool,
+        app_state.clustering_pool,
+    ):
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 if __name__ == "__main__":

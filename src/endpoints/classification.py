@@ -42,7 +42,7 @@ async def classify_content(req: ClassificationRequest, http_request: Request):
         try:
             result = await asyncio.wait_for(
                 asyncio.get_running_loop().run_in_executor(
-                    app_state.thread_pool, _classify_sync, app_state.classifier, cleaned_text, labels
+                    app_state.classification_pool, _classify_sync, app_state.classifier, cleaned_text, labels
                 ),
                 timeout=app_state.config["TIMEOUT"],
             )

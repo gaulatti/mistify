@@ -54,8 +54,13 @@ def app_state():
         classification_lock=asyncio.Lock(),
         translation_lock=asyncio.Lock(),
         editorial_lock=asyncio.Lock(),
+        embedding_lock=asyncio.Lock(),
         thread_pool=None,
-        config={"TIMEOUT": 10, "DEFAULT_CLASSIFICATION_LABELS": []},
+        classification_pool=None,
+        translation_pool=None,
+        embedding_pool=None,
+        clustering_pool=None,
+        config={"TIMEOUT": 10, "EMBEDDING_TIMEOUT": 10, "DEFAULT_CLASSIFICATION_LABELS": []},
     )
 
 

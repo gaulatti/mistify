@@ -46,7 +46,7 @@ async def _ensure_embedder_available(app_state) -> None:
 
         try:
             app_state.embedder = await asyncio.get_running_loop().run_in_executor(
-                app_state.thread_pool,
+                app_state.embedding_pool,
                 _load_embedder,
                 str(app_state.config["HF_CACHE"]),
             )
@@ -83,7 +83,7 @@ async def embed_items(req: EmbeddingItem, http_request: Request) -> dict:
         with metrics.record_operation("embed"):
             # Call embedding function with single text in a list
             vecs = await asyncio.get_running_loop().run_in_executor(
-                app_state.thread_pool, _embed_sync, app_state.embedder, [text], 64, True
+                app_state.embedding_pool, _embed_sync, app_state.embedder, [text], 64, True
             )
 
     except Exception as e:
