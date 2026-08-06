@@ -27,6 +27,16 @@ class OperationQueue:
         if envelope.operation_type == "analyze_posts":
             return await self._enqueue_analyze_posts(envelope, serialized)
 
+        if (
+            envelope.operation_type == "cluster_post"
+            and str(envelope.payload.get("source", "")).casefold() == "youtube"
+        ):
+            # YouTube Scout is interactive and its analysis is already
+            # prioritized. Keep its immediate clustering pass adjacent rather
+            # than placing it behind the general RSS backlog.
+            await self.redis.rpush(self.queue_name, serialized)
+            return True
+
         if envelope.idempotency_key:
             return await self._enqueue_once(envelope.idempotency_key, serialized)
 

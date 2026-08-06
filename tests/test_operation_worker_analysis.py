@@ -111,3 +111,16 @@ async def test_worker_does_not_coalesce_forced_analysis():
 
     assert await worker._coalesce_analysis(queued) is queued
     queue.dequeue_nowait.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_youtube_clustering_uses_priority_end_of_queue():
+    redis = SimpleNamespace(rpush=AsyncMock())
+    queue = OperationQueue(redis)
+    envelope = OperationEnvelope(
+        operation_type="cluster_post",
+        payload={"source": "youtube", "content": "Video"},
+    )
+
+    assert await queue.enqueue(envelope) is True
+    redis.rpush.assert_awaited_once()
