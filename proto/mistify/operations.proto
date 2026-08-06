@@ -11,6 +11,7 @@ service MistifyOperations {
   rpc TranslateText (TranslateTextRequest) returns (EnqueueAnalysisResponse);
   rpc EmbedText (EmbedTextRequest) returns (EnqueueAnalysisResponse);
   rpc ClusterPost (ClusterPostRequest) returns (EnqueueAnalysisResponse);
+  rpc GenerateScoutQueries (ScoutQueryRequest) returns (ScoutQueryResponse);
 }
 
 service MonitorIngest {
@@ -92,6 +93,18 @@ message ClusterPostRequest {
   google.protobuf.Struct metadata = 4;
   HttpCallback callback = 5;
   GrpcCallback grpc_callback = 6;
+}
+
+message ScoutQueryRequest {
+  string title = 1;
+  string source_language = 2;
+  int32 max_queries = 3;
+}
+
+message ScoutQueryResponse {
+  repeated string queries = 1;
+  string translated_title = 2;
+  string source_language = 3;
 }
 
 message EnqueueAnalysisResponse {

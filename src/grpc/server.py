@@ -5,6 +5,7 @@ import grpc
 from google.protobuf.json_format import MessageToDict
 
 from src.grpc.mistify import operations_pb2, operations_pb2_grpc
+from src.helpers.scout_queries import generate_scout_queries
 from src.operations.models import GrpcCallback, HttpCallback, OperationContext, OperationEnvelope
 
 logger = logging.getLogger("mistify")
@@ -13,8 +14,9 @@ GRPC_PORT = int(os.getenv("GRPC_PORT", "50000"))
 
 
 class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
-    def __init__(self, operation_queue) -> None:
+    def __init__(self, operation_queue, app_state) -> None:
         self.operation_queue = operation_queue
+        self.app_state = app_state
 
     async def AnalyzePosts(self, request, context):
         items = [
@@ -89,6 +91,19 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
             MessageToDict(request.post, preserving_proto_field_name=True),
         )
 
+    async def GenerateScoutQueries(self, request, context):
+        queries, translated_title, source_language = await generate_scout_queries(
+            self.app_state,
+            request.title,
+            request.source_language or None,
+            request.max_queries or 2,
+        )
+        return operations_pb2.ScoutQueryResponse(
+            queries=queries,
+            translated_title=translated_title,
+            source_language=source_language,
+        )
+
     async def _enqueue_request(self, operation_type, request, payload):
         envelope = OperationEnvelope(
             operation_type=operation_type,
@@ -133,10 +148,10 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
         )
 
 
-async def start_grpc_server(operation_queue):
+async def start_grpc_server(operation_queue, app_state):
     server = grpc.aio.server()
     operations_pb2_grpc.add_MistifyOperationsServicer_to_server(
-        MistifyOperationsService(operation_queue),
+        MistifyOperationsService(operation_queue, app_state),
         server,
     )
     server.add_insecure_port(f"[::]:{GRPC_PORT}")

@@ -93,7 +93,14 @@ class OperationWorker:
 
     async def _analyze_posts(self, envelope: OperationEnvelope) -> Dict[str, Any]:
         wrappers = self._extract_items(envelope.payload)
-        posts = [wrapper["post"] for wrapper in wrappers]
+        posts = []
+        for wrapper in wrappers:
+            post = dict(wrapper["post"])
+            if not post.get("id"):
+                post["id"] = post.get("hash") or post.get("uri") or envelope.operation_id
+            if isinstance(post.get("author"), str):
+                post["author"] = {"name": post["author"]}
+            posts.append(post)
 
         try:
             analysis_request = UnifiedAnalysisRequest(

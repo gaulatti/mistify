@@ -274,7 +274,10 @@ def root():
 
 async def start_processing_loop():
     if app_state.grpc_server is None:
-        app_state.grpc_server = await start_grpc_server(app_state.operation_queue)
+        app_state.grpc_server = await start_grpc_server(
+            app_state.operation_queue,
+            app_state,
+        )
 
     if app_state.operation_worker_task is None or app_state.operation_worker_task.done():
         app_state.operation_worker_task = asyncio.create_task(app_state.operation_worker.run_forever())
