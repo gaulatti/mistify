@@ -42,7 +42,10 @@ class OperationQueue:
         items remain, the operation is not enqueued.
         """
         if envelope.payload.get("force"):
-            await self.redis.lpush(self.queue_name, serialized)
+            # Manual reanalysis (currently Scout) must not sit behind the
+            # autonomous discovery backlog.  Consumers use BRPOP, so RPUSH
+            # places forced work at the next-consumed end of the queue.
+            await self.redis.rpush(self.queue_name, serialized)
             return True
 
         items = envelope.payload.get("items") or []

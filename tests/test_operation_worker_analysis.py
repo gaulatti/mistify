@@ -45,7 +45,7 @@ async def test_analyze_posts_uses_hash_when_monitor_payload_has_no_id(monkeypatc
 
 @pytest.mark.asyncio
 async def test_forced_analysis_bypasses_idempotency_filter():
-    redis = SimpleNamespace(lpush=AsyncMock())
+    redis = SimpleNamespace(rpush=AsyncMock())
     queue = OperationQueue(redis)
     envelope = OperationEnvelope(
         operation_type="analyze_posts",
@@ -55,7 +55,7 @@ async def test_forced_analysis_bypasses_idempotency_filter():
     queued = await queue._enqueue_analyze_posts(envelope, "serialized")
 
     assert queued is True
-    redis.lpush.assert_awaited_once_with(queue.queue_name, "serialized")
+    redis.rpush.assert_awaited_once_with(queue.queue_name, "serialized")
 
 
 @pytest.mark.asyncio
