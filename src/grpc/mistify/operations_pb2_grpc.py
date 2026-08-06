@@ -69,6 +69,11 @@ class MistifyOperationsStub(object):
                 request_serializer=mistify_dot_operations__pb2.ScoutQueryRequest.SerializeToString,
                 response_deserializer=mistify_dot_operations__pb2.ScoutQueryResponse.FromString,
                 _registered_method=True)
+        self.RankScoutCandidates = channel.unary_unary(
+                '/mistify.operations.MistifyOperations/RankScoutCandidates',
+                request_serializer=mistify_dot_operations__pb2.ScoutRankRequest.SerializeToString,
+                response_deserializer=mistify_dot_operations__pb2.ScoutRankResponse.FromString,
+                _registered_method=True)
 
 
 class MistifyOperationsServicer(object):
@@ -116,6 +121,12 @@ class MistifyOperationsServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RankScoutCandidates(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_MistifyOperationsServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -153,6 +164,11 @@ def add_MistifyOperationsServicer_to_server(servicer, server):
                     servicer.GenerateScoutQueries,
                     request_deserializer=mistify_dot_operations__pb2.ScoutQueryRequest.FromString,
                     response_serializer=mistify_dot_operations__pb2.ScoutQueryResponse.SerializeToString,
+            ),
+            'RankScoutCandidates': grpc.unary_unary_rpc_method_handler(
+                    servicer.RankScoutCandidates,
+                    request_deserializer=mistify_dot_operations__pb2.ScoutRankRequest.FromString,
+                    response_serializer=mistify_dot_operations__pb2.ScoutRankResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -344,6 +360,33 @@ class MistifyOperations(object):
             '/mistify.operations.MistifyOperations/GenerateScoutQueries',
             mistify_dot_operations__pb2.ScoutQueryRequest.SerializeToString,
             mistify_dot_operations__pb2.ScoutQueryResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RankScoutCandidates(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mistify.operations.MistifyOperations/RankScoutCandidates',
+            mistify_dot_operations__pb2.ScoutRankRequest.SerializeToString,
+            mistify_dot_operations__pb2.ScoutRankResponse.FromString,
             options,
             channel_credentials,
             insecure,

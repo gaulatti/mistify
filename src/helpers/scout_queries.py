@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from types import SimpleNamespace
@@ -5,6 +6,7 @@ from typing import Optional
 
 from src.endpoints.language import detect_language
 from src.endpoints.translation import translate_text
+from src.helpers.async_wrappers import _embed_sync
 from src.models import LanguageDetectionRequest, TranslationRequest
 
 logger = logging.getLogger("mistify")
@@ -101,3 +103,39 @@ async def generate_scout_queries(
             queries.append(broader)
 
     return queries[: max(1, min(3, max_queries))], translated_title, detected_language
+
+
+async def rank_scout_candidates(
+    app_state,
+    seed_text: str,
+    candidates: list[tuple[str, str]],
+    min_score: float = 0.55,
+    max_candidates: int = 15,
+) -> list[tuple[str, float]]:
+    """Rank candidate video titles against a translated seed using MiniLM."""
+    usable = [(candidate_id, title) for candidate_id, title in candidates if title.strip()]
+    if not seed_text.strip() or not usable or app_state.embedder is None:
+        return []
+
+    texts = [seed_text, *(title for _, title in usable)]
+    async with app_state.embedding_lock:
+        vectors = await asyncio.get_running_loop().run_in_executor(
+            app_state.embedding_pool,
+            _embed_sync,
+            app_state.embedder,
+            texts,
+            32,
+            True,
+        )
+    seed_vector = vectors[0]
+    ranked = sorted(
+        (
+            (candidate_id, float(vector @ seed_vector))
+            for (candidate_id, _), vector in zip(usable, vectors[1:])
+        ),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    threshold = min(1.0, max(-1.0, min_score or 0.55))
+    limit = max(1, min(25, max_candidates or 15))
+    return [item for item in ranked if item[1] >= threshold][:limit]

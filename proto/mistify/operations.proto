@@ -12,6 +12,7 @@ service MistifyOperations {
   rpc EmbedText (EmbedTextRequest) returns (EnqueueAnalysisResponse);
   rpc ClusterPost (ClusterPostRequest) returns (EnqueueAnalysisResponse);
   rpc GenerateScoutQueries (ScoutQueryRequest) returns (ScoutQueryResponse);
+  rpc RankScoutCandidates (ScoutRankRequest) returns (ScoutRankResponse);
 }
 
 service MonitorIngest {
@@ -106,6 +107,27 @@ message ScoutQueryResponse {
   repeated string queries = 1;
   string translated_title = 2;
   string source_language = 3;
+}
+
+message ScoutCandidate {
+  string id = 1;
+  string title = 2;
+}
+
+message ScoutRankRequest {
+  string seed_text = 1;
+  repeated ScoutCandidate candidates = 2;
+  float min_score = 3;
+  int32 max_candidates = 4;
+}
+
+message RankedScoutCandidate {
+  string id = 1;
+  float score = 2;
+}
+
+message ScoutRankResponse {
+  repeated RankedScoutCandidate candidates = 1;
 }
 
 message EnqueueAnalysisResponse {

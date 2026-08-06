@@ -5,7 +5,7 @@ import grpc
 from google.protobuf.json_format import MessageToDict
 
 from src.grpc.mistify import operations_pb2, operations_pb2_grpc
-from src.helpers.scout_queries import generate_scout_queries
+from src.helpers.scout_queries import generate_scout_queries, rank_scout_candidates
 from src.operations.models import GrpcCallback, HttpCallback, OperationContext, OperationEnvelope
 
 logger = logging.getLogger("mistify")
@@ -104,6 +104,21 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
             queries=queries,
             translated_title=translated_title,
             source_language=source_language,
+        )
+
+    async def RankScoutCandidates(self, request, context):
+        ranked = await rank_scout_candidates(
+            self.app_state,
+            request.seed_text,
+            [(candidate.id, candidate.title) for candidate in request.candidates],
+            request.min_score or 0.55,
+            request.max_candidates or 15,
+        )
+        return operations_pb2.ScoutRankResponse(
+            candidates=[
+                operations_pb2.RankedScoutCandidate(id=candidate_id, score=score)
+                for candidate_id, score in ranked
+            ]
         )
 
     async def _enqueue_request(self, operation_type, request, payload):
