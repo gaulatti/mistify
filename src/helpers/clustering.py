@@ -335,7 +335,19 @@ def build_clustering_graph(
         entities = get_entities(docs, embedder)
         entities_typed = get_entities_with_types(docs, embedder)
 
-    topics = get_primary_topics(texts, classifier, show_bar)
+    # Topic labels only participate in edge gating in strict mode. Running
+    # DistilBART when strict mode is disabled wastes a full GPU pass for every
+    # clustering operation without changing a single clustering decision.
+    topic_strict_mode = (
+        config.get("topic_strict_mode", CLUSTERING_TOPIC_STRICT_MODE)
+        if config
+        else CLUSTERING_TOPIC_STRICT_MODE
+    )
+    topics = (
+        get_primary_topics(texts, classifier, show_bar)
+        if topic_strict_mode
+        else ["misc"] * len(texts)
+    )
 
     # Handle precomputed embeddings
     pre_embs: Optional[List[List[float]]] = None

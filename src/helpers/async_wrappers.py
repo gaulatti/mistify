@@ -23,9 +23,6 @@ def _cluster_sync(texts: List[str], nlp, embedder, classifier, config: Dict = No
     from networkx.algorithms.community import louvain_communities
 
     try:
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
         logger.debug("Building clustering graph")
         G, sims, why, topics, entities = build_clustering_graph(texts, nlp, embedder, classifier, show_bar=debug,
                                                                 config=config)
@@ -56,9 +53,6 @@ def _cluster_sync(texts: List[str], nlp, embedder, classifier, config: Dict = No
         
         groups.sort(key=lambda g: (-len(g), min(g)))
         logger.debug("Final result: %d groups after splitting", len(groups))
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
         logger.debug("Creating cluster groups")
         cluster_groups = []
