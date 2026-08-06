@@ -137,14 +137,10 @@ def _cluster_sync(texts: List[str], nlp, embedder, classifier, config: Dict = No
 def _classify_sync(classifier, text: str, labels: List[str]):
     """Synchronous classification function for thread execution"""
     try:
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
         max_text_length = 512
         if len(text) > max_text_length:
             text = text[:max_text_length]
         result = classifier(text, candidate_labels=labels)
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
         return result
     except RuntimeError as e:
         if "CUDA out of memory" in str(e) or "out of memory" in str(e):
@@ -159,6 +155,32 @@ def _classify_sync(classifier, text: str, labels: List[str]):
                 raise e
         else:
             raise e
+
+
+def _classify_batch_sync(
+    classifier,
+    texts: List[str],
+    labels: List[str],
+    batch_size: int = 8,
+):
+    """Classify several texts in GPU batches with an OOM-safe fallback."""
+    cleaned = [str(text or "")[:512] for text in texts]
+    if not cleaned:
+        return []
+    try:
+        result = classifier(
+            cleaned,
+            candidate_labels=labels,
+            batch_size=batch_size,
+        )
+        return result if isinstance(result, list) else [result]
+    except RuntimeError as exc:
+        if "out of memory" not in str(exc).lower():
+            raise
+        logger.warning("GPU out of memory for classification batch; retrying serially")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        return [_classify_sync(classifier, text, labels) for text in cleaned]
 
 
 def _translate_sync(translator, text: str, source_lang: Optional[str] = None, target_lang: str = "eng",
@@ -476,9 +498,6 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
 def _embed_sync(embedder, texts: List[str], batch_size: int, normalize: bool):
     """Synchronous embedding function."""
 
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
     # Log input information
 
     # Validate inputs
@@ -530,8 +549,5 @@ def _embed_sync(embedder, texts: List[str], batch_size: int, normalize: bool):
         # Return zero embeddings as fallback
         vecs = torch.zeros((len(texts), 384), dtype=torch.float32).numpy()  # all-MiniLM-L6-v2 has 384 dimensions
         logger.warning(f"⚠️ Returning zero embeddings with shape: {vecs.shape}")
-
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
 
     return vecs

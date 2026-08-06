@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -25,6 +26,7 @@ logger = logging.getLogger("mistify")
 IDLE_TIMEOUT_SECONDS = 5
 CALLBACK_TIMEOUT_SECONDS = 30.0
 CALLBACK_MAX_ATTEMPTS = 6
+ANALYSIS_BATCH_MAX_ITEMS = max(1, int(os.getenv("ANALYSIS_BATCH_MAX_ITEMS", "32")))
 
 
 class OperationWorker:
@@ -44,6 +46,7 @@ class OperationWorker:
                 if queued is None:
                     continue
 
+                queued = await self._coalesce_analysis(queued)
                 await self.process(queued)
             except asyncio.CancelledError:
                 logger.info("Mistify operation worker cancelled")
@@ -51,6 +54,42 @@ class OperationWorker:
             except Exception as exc:
                 logger.error("Mistify operation worker error: %s", exc)
                 await asyncio.sleep(1)
+
+    async def _coalesce_analysis(self, queued: QueuedOperation) -> QueuedOperation:
+        """Combine adjacent one-item analysis operations into a GPU-sized batch."""
+        envelope = queued.envelope
+        if (
+            envelope.operation_type != "analyze_posts"
+            or envelope.payload.get("force")
+        ):
+            return queued
+
+        items = envelope.payload.get("items")
+        if not isinstance(items, list) or len(items) >= ANALYSIS_BATCH_MAX_ITEMS:
+            return queued
+
+        while len(items) < ANALYSIS_BATCH_MAX_ITEMS:
+            candidate = await self.queue.dequeue_nowait()
+            if candidate is None:
+                break
+            other = candidate.envelope
+            other_items = other.payload.get("items")
+            compatible = (
+                other.operation_type == "analyze_posts"
+                and not other.payload.get("force")
+                and isinstance(other_items, list)
+                and len(items) + len(other_items) <= ANALYSIS_BATCH_MAX_ITEMS
+                and other.grpc_callback == envelope.grpc_callback
+                and other.callback == envelope.callback
+                and other.payload.get("classification_labels")
+                == envelope.payload.get("classification_labels")
+            )
+            if not compatible:
+                await self.queue.requeue_next(candidate)
+                break
+            items.extend(other_items)
+
+        return queued
 
     async def process(self, queued: QueuedOperation) -> None:
         envelope = queued.envelope
@@ -198,9 +237,9 @@ class OperationWorker:
             if res.content_classification:
                 cls_dump = res.content_classification.model_dump()
                 base["content_classification"] = cls_dump
-                labels = (cls_dump.get("full_result") or {}).get("labels") or []
-                if labels:
-                    base["classification_labels"] = labels
+                label = cls_dump.get("label")
+                if label and label not in {"error", "timeout", "uncertain"}:
+                    base["classification_labels"] = [label]
 
             if res.translation:
                 base["translation"] = res.translation.model_dump()

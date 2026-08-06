@@ -12,7 +12,7 @@ from src.models import (
 from .language import detect_language
 from .translation import translate_text
 from .classification import classify_content
-from src.helpers.async_wrappers import _classify_sync, _embed_sync
+from src.helpers.async_wrappers import _classify_batch_sync, _classify_sync, _embed_sync
 from src import metrics
 
 router = APIRouter()
@@ -258,6 +258,177 @@ def _should_run_content_classification(editorial_label: Optional[str]) -> bool:
     }
 
 
+def _classification_response(result: dict, app_state) -> ClassificationResponse:
+    scores = result.get("scores") or []
+    labels = result.get("labels") or []
+    if not scores or not labels:
+        return ClassificationResponse(label="error", score=0.0, full_result=result)
+    best_score = float(scores[0])
+    best_label = labels[0]
+    runner_up = float(scores[1]) if len(scores) > 1 else 0.0
+    if (
+        best_score < app_state.config["MIN_SCORE"]
+        or best_score - runner_up < app_state.config["MIN_MARGIN"]
+    ):
+        best_label = "uncertain"
+    return ClassificationResponse(
+        label=best_label,
+        score=best_score,
+        full_result=result,
+    )
+
+
+async def _unified_analysis_batched(
+    req: UnifiedAnalysisRequest,
+    http_request: Request,
+) -> UnifiedAnalysisResponse:
+    """Run model stages over a real batch instead of one complete post at a time."""
+    app_state = http_request.state.app_state
+    results: list[UnifiedAnalysisItemResponse] = []
+
+    # FastText and translation are conditional preprocessing. Translation is
+    # intentionally limited to the non-English subset; the expensive shared
+    # embedding/classification stages below are GPU-batched.
+    for item_req in req.items:
+        item = UnifiedAnalysisItemResponse(
+            id=item_req.id,
+            content=item_req.content,
+            hash=item_req.hash,
+        )
+        detected_language = _extract_detected_language(item_req.lang)
+        if detected_language:
+            item.language_detection = LanguageDetectionResponse(
+                languages=[detected_language],
+                probabilities=[1.0],
+            )
+        elif req.detect_language and app_state.fasttext_model:
+            try:
+                response = await detect_language(
+                    LanguageDetectionRequest(text=item_req.content, k=req.language_count),
+                    http_request,
+                )
+                item.language_detection = response
+                detected_language = response.languages[0] if response.languages else None
+            except Exception as exc:
+                logger.error("❌ Batched language detection failed: %s", exc)
+
+        if (
+            req.translate_to_english
+            and app_state.translator
+            and detected_language
+            and detected_language.lower() not in {"en", "eng"}
+        ):
+            try:
+                translated = await translate_text(
+                    TranslationRequest(
+                        text=item_req.content,
+                        source_language=detected_language,
+                    ),
+                    http_request,
+                )
+                item.translation = translated
+                item.content = translated.translated_text
+            except Exception as exc:
+                logger.error("❌ Batched preprocessing translation failed: %s", exc)
+        elif req.translate_to_english and detected_language:
+            item.translation = TranslationResponse(
+                original_text=item_req.content,
+                translated_text=item_req.content,
+                source_language=detected_language,
+                target_language="eng",
+            )
+
+        results.append(item)
+
+    texts = [item.content for item in results]
+    if app_state.embedder and texts:
+        try:
+            async with app_state.embedding_lock:
+                embeddings = await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(
+                        app_state.embedding_pool,
+                        _embed_sync,
+                        app_state.embedder,
+                        texts,
+                        32,
+                        True,
+                    ),
+                    timeout=app_state.config.get(
+                        "EMBEDDING_TIMEOUT",
+                        app_state.config["TIMEOUT"],
+                    ),
+                )
+            for item, vector in zip(results, embeddings):
+                item.embedding = vector.tolist()
+        except Exception as exc:
+            logger.error("❌ Batched embedding generation failed: %s", exc)
+
+    editorial_labels: list[Optional[str]] = [None] * len(results)
+    if app_state.classifier and texts:
+        try:
+            async with app_state.editorial_lock:
+                editorial_results = await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(
+                        app_state.classification_pool,
+                        _classify_batch_sync,
+                        app_state.classifier,
+                        texts,
+                        EDITORIAL_PRIORITY_LABELS,
+                        8,
+                    ),
+                    timeout=app_state.config["TIMEOUT"] * max(1, (len(texts) + 7) // 8),
+                )
+            for index, (item, raw_result) in enumerate(zip(results, editorial_results)):
+                response = ClassificationResponse(
+                    label=raw_result["labels"][0],
+                    score=float(raw_result["scores"][0]),
+                    full_result=raw_result,
+                )
+                newsworthiness, urgency, editorial_label = _scores_from_editorial_result(response)
+                item.newsworthiness = newsworthiness
+                item.urgency = _final_urgency(item.content, urgency)
+                editorial_labels[index] = editorial_label
+        except Exception as exc:
+            logger.error("❌ Batched editorial scoring failed: %s", exc)
+            for item in results:
+                item.newsworthiness = 0.0
+                item.urgency = 0.0
+
+    eligible = [
+        index
+        for index, label in enumerate(editorial_labels)
+        if req.classify_content and _should_run_content_classification(label)
+    ]
+    labels = req.classification_labels or app_state.config["DEFAULT_CLASSIFICATION_LABELS"]
+    if app_state.classifier and eligible and labels:
+        if len(labels) < 2:
+            labels = [*labels, "other"]
+        try:
+            taxonomy_texts = [texts[index] for index in eligible]
+            async with app_state.classification_lock:
+                taxonomy_results = await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(
+                        app_state.classification_pool,
+                        _classify_batch_sync,
+                        app_state.classifier,
+                        taxonomy_texts,
+                        labels,
+                        8,
+                    ),
+                    timeout=app_state.config["TIMEOUT"]
+                    * max(1, (len(taxonomy_texts) + 7) // 8),
+                )
+            for index, raw_result in zip(eligible, taxonomy_results):
+                results[index].content_classification = _classification_response(
+                    raw_result,
+                    app_state,
+                )
+        except Exception as exc:
+            logger.error("❌ Batched taxonomy classification failed: %s", exc)
+
+    return UnifiedAnalysisResponse(results=results)
+
+
 async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
     """Perform language detection, content classification, and translation on multiple input items"""
     app_state = http_request.state.app_state
@@ -265,6 +436,9 @@ async def unified_analysis(req: UnifiedAnalysisRequest, http_request: Request):
     metrics.POSTS_BATCH_SIZE.labels(endpoint="analyze").observe(batch_size)
     metrics.POSTS_PROCESSED_TOTAL.labels(endpoint="analyze").inc(batch_size)
     analysis_started_at = time.perf_counter()
+    if batch_size > 1:
+        with metrics.record_operation("analyze"):
+            return await _unified_analysis_batched(req, http_request)
     with metrics.record_operation("analyze"):
         results = []
         metrics.ANALYZE_BATCH_ITEMS.observe(batch_size)

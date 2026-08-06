@@ -153,6 +153,21 @@ class OperationQueue:
             return None
 
         _, raw = result
+        return self._parse(raw)
+
+    async def dequeue_nowait(self) -> Optional[QueuedOperation]:
+        """Pop the next operation without blocking."""
+        raw = await self.redis.rpop(self.queue_name)
+        if raw is None:
+            return None
+        return self._parse(raw)
+
+    async def requeue_next(self, queued: QueuedOperation) -> None:
+        """Put an inspected operation back at the next-consumed end."""
+        await self.redis.rpush(self.queue_name, queued.model_dump_json())
+
+    @staticmethod
+    def _parse(raw: str) -> Optional[QueuedOperation]:
         try:
             payload = json.loads(raw)
             return QueuedOperation.model_validate(payload)
