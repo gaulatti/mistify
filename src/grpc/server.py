@@ -27,6 +27,8 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
             for item in request.items
         ]
         payload = {"items": items}
+        if request.force:
+            payload["force"] = True
         if request.classification_labels:
             payload["classification_labels"] = list(request.classification_labels)
 

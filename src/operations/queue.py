@@ -41,6 +41,10 @@ class OperationQueue:
         Items whose idempotency_key already exists are filtered out. If no
         items remain, the operation is not enqueued.
         """
+        if envelope.payload.get("force"):
+            await self.redis.lpush(self.queue_name, serialized)
+            return True
+
         items = envelope.payload.get("items") or []
         if not isinstance(items, list):
             items = []

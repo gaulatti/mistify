@@ -48,6 +48,7 @@ message AnalyzePostsRequest {
   HttpCallback callback = 4;
   GrpcCallback grpc_callback = 5;
   repeated string classification_labels = 6;
+  bool force = 7;
 }
 
 message DetectLanguageRequest {

@@ -24,6 +24,7 @@ logger = logging.getLogger("mistify")
 
 IDLE_TIMEOUT_SECONDS = 5
 CALLBACK_TIMEOUT_SECONDS = 30.0
+CALLBACK_MAX_ATTEMPTS = 6
 
 
 class OperationWorker:
@@ -246,21 +247,27 @@ class OperationWorker:
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
     ) -> None:
-        try:
-            await self._deliver_callback(envelope, status, result=result, error=error)
-        except Exception as exc:
-            logger.error(
-                "Operation %s %s callback delivery failed (%s): %s",
-                envelope.operation_id,
-                status,
-                self._callback_target(envelope),
-                self._format_callback_error(exc),
-            )
-            logger.debug(
-                "Callback delivery traceback for operation %s",
-                envelope.operation_id,
-                exc_info=True,
-            )
+        for attempt in range(1, CALLBACK_MAX_ATTEMPTS + 1):
+            try:
+                await self._deliver_callback(envelope, status, result=result, error=error)
+                return
+            except Exception as exc:
+                logger.error(
+                    "Operation %s %s callback delivery failed (%s), attempt %d/%d: %s",
+                    envelope.operation_id,
+                    status,
+                    self._callback_target(envelope),
+                    attempt,
+                    CALLBACK_MAX_ATTEMPTS,
+                    self._format_callback_error(exc),
+                )
+                logger.debug(
+                    "Callback delivery traceback for operation %s",
+                    envelope.operation_id,
+                    exc_info=True,
+                )
+                if attempt < CALLBACK_MAX_ATTEMPTS:
+                    await asyncio.sleep(min(16, 2 ** (attempt - 1)))
 
     def _callback_target(self, envelope: OperationEnvelope) -> str:
         if envelope.grpc_callback:
