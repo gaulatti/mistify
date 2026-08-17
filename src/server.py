@@ -115,6 +115,7 @@ app_state.config = {
     "CLUSTERING_AVG_SIM_MIN": float(os.getenv("CLUSTERING_AVG_SIM_MIN", "0.40")),
     "CLUSTERING_PRE_FILTER_MIN_SIM": float(os.getenv("CLUSTERING_PRE_FILTER_MIN_SIM", "0.25")),
     "CLUSTERING_MAX_CANDIDATES": int(os.getenv("CLUSTERING_MAX_CANDIDATES", "30")),
+    "CLUSTERING_EVENT_WINDOW_HOURS": int(os.getenv("CLUSTERING_EVENT_WINDOW_HOURS", "24")),
 }
 app_state.config["HF_CACHE"].mkdir(parents=True, exist_ok=True)
 

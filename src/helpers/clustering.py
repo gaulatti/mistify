@@ -48,6 +48,7 @@ TEMPLATE_PREFIXES = {
     "how to watch", "what to know", "what time", "live updates",
     "breaking:", "breaking news", "how to follow", "full transcript",
     "transcript:", "schedule:", "odds:", "preview:", "recap:",
+    "result of the draw", "quiniela", "declares", "announces",
 }
 
 

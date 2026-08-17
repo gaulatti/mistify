@@ -1,6 +1,9 @@
 import asyncio
 import logging
+import re
 import time
+import unicodedata
+from datetime import datetime, timezone
 from typing import List, Optional, Union
 from fastapi import APIRouter, HTTPException, Request
 from src.models import (
@@ -13,6 +16,67 @@ from src import metrics
 
 router = APIRouter()
 logger = logging.getLogger("mistify")
+
+_MONTH_ALIASES = {
+    "january": "01", "enero": "01", "gennaio": "01",
+    "february": "02", "febrero": "02", "febbraio": "02",
+    "march": "03", "marzo": "03", "april": "04", "abril": "04",
+    "aprile": "04", "may": "05", "mayo": "05", "maggio": "05",
+    "june": "06", "junio": "06", "giugno": "06", "july": "07",
+    "julio": "07", "luglio": "07", "august": "08", "agosto": "08",
+    "september": "09", "septiembre": "09", "settembre": "09",
+    "october": "10", "octubre": "10", "ottobre": "10",
+    "november": "11", "noviembre": "11", "novembre": "11",
+    "december": "12", "diciembre": "12", "dicembre": "12",
+}
+_RECURRING_MARKERS = {
+    "distribution", "distributions", "earnings", "results", "report",
+    "update", "quiniela", "draw", "sorteo",
+}
+_LOTTERY_EDITIONS = {
+    "nacional", "provincia", "cordoba", "santa fe", "matutina",
+    "vespertina", "nocturna",
+}
+
+
+def _normalise_anchor_text(value: str) -> str:
+    normalised = unicodedata.normalize("NFKD", value or "")
+    ascii_value = normalised.encode("ascii", "ignore").decode().lower()
+    return " ".join(re.findall(r"[a-z0-9]+", ascii_value))
+
+
+def _parse_post_time(post: PostData) -> Optional[datetime]:
+    raw = post.posted_at or post.createdAt or post.received_at
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _has_conflicting_event_anchors(left_text: str, right_text: str) -> bool:
+    left = _normalise_anchor_text(left_text)
+    right = _normalise_anchor_text(right_text)
+    left_terms = set(left.split())
+    right_terms = set(right.split())
+
+    if "quiniela" in left_terms and "quiniela" in right_terms:
+        left_editions = {anchor for anchor in _LOTTERY_EDITIONS if anchor in left}
+        right_editions = {anchor for anchor in _LOTTERY_EDITIONS if anchor in right}
+        if left_editions and right_editions and left_editions != right_editions:
+            return True
+
+    if (left_terms | right_terms) & _RECURRING_MARKERS:
+        left_months = {_MONTH_ALIASES[token] for token in left_terms if token in _MONTH_ALIASES}
+        right_months = {_MONTH_ALIASES[token] for token in right_terms if token in _MONTH_ALIASES}
+        if left_months and right_months and left_months != right_months:
+            return True
+
+    return False
 
 
 def _cosine_similarity(a: List[float], b: List[float]) -> float:
@@ -36,6 +100,7 @@ def _filter_candidate_posts(
     embedder,
     min_similarity: float = 0.30,
     max_candidates: int = 20,
+    max_age_hours: Optional[int] = 24,
 ) -> List[PostData]:
     """
     Pre-filter candidate posts before expensive graph clustering.
@@ -51,15 +116,25 @@ def _filter_candidate_posts(
     if not candidates:
         return []
 
-    # Deduplicate by hash or exact content; preserve order.
+    # Deduplicate by hash or exact content and reject incompatible event anchors.
     seen_hashes = {getattr(main_post, "hash", None), getattr(main_post, "id", None)}
     seen_content = {main_post.content.strip().lower()}
     unique_candidates = []
+    main_time = _parse_post_time(main_post)
     for candidate in candidates:
         h = getattr(candidate, "hash", None)
         cid = getattr(candidate, "id", None)
         content_key = candidate.content.strip().lower()
         if h in seen_hashes or cid in seen_hashes or content_key in seen_content:
+            continue
+        candidate_time = _parse_post_time(candidate)
+        if max_age_hours is not None:
+            if main_time is None or candidate_time is None:
+                continue
+            age_hours = abs((main_time - candidate_time).total_seconds()) / 3600
+            if age_hours > max_age_hours:
+                continue
+        if _has_conflicting_event_anchors(main_post.content, candidate.content):
             continue
         if h:
             seen_hashes.add(h)
@@ -151,6 +226,11 @@ async def cluster_texts(req: PostData, http_request: Request):
         app_state.embedder,
         min_similarity=app_state.config.get("CLUSTERING_PRE_FILTER_MIN_SIM", 0.25),
         max_candidates=app_state.config.get("CLUSTERING_MAX_CANDIDATES", 30),
+        max_age_hours=(
+            None
+            if req.source == "youtube"
+            else app_state.config.get("CLUSTERING_EVENT_WINDOW_HOURS", 24)
+        ),
     )
 
     # Prepare texts for clustering: main post + similar posts
