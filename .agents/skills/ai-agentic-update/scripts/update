@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly CANONICAL_REMOTE='git@github.com:gaulatti/agentic-coding.git'
+
+TARGET_REPOSITORY=''
+REFERENCE_REPOSITORY="${AI_AGENTIC_CODING_REPOSITORY:-}"
+FETCH='true'
+
+usage() {
+  printf '%s\n' 'Usage: update [--repository PATH] [--reference-repository PATH] [--no-fetch]'
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repository)
+      [[ $# -ge 2 ]] || { printf '%s\n' 'error: --repository requires a path' >&2; exit 2; }
+      TARGET_REPOSITORY="$2"
+      shift 2
+      ;;
+    --reference-repository)
+      [[ $# -ge 2 ]] || { printf '%s\n' 'error: --reference-repository requires a path' >&2; exit 2; }
+      REFERENCE_REPOSITORY="$2"
+      shift 2
+      ;;
+    --no-fetch)
+      FETCH='false'
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'error: unknown argument: %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "${TARGET_REPOSITORY}" ]]; then
+  TARGET_REPOSITORY="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+    printf '%s\n' 'error: run ai-agentic-update from inside a Git repository' >&2
+    exit 1
+  }
+fi
+TARGET_REPOSITORY="$(cd "${TARGET_REPOSITORY}" && pwd)"
+
+if ! git -C "${TARGET_REPOSITORY}" rev-parse --show-toplevel >/dev/null 2>&1; then
+  printf 'error: target is not a Git repository: %s\n' "${TARGET_REPOSITORY}" >&2
+  exit 1
+fi
+
+if [[ -z "${REFERENCE_REPOSITORY}" ]]; then
+  known_reference='/Users/gaulatti/source/gaulatti/agentic-coding'
+  if git -C "${known_reference}" rev-parse --show-toplevel >/dev/null 2>&1; then
+    REFERENCE_REPOSITORY="${known_reference}"
+  else
+    cache_base="${XDG_CACHE_HOME:-${HOME}/.cache}"
+    REFERENCE_REPOSITORY="${cache_base}/ai-agentic-update/agentic-coding"
+  fi
+fi
+
+if ! git -C "${REFERENCE_REPOSITORY}" rev-parse --show-toplevel >/dev/null 2>&1; then
+  if [[ "${FETCH}" != 'true' ]]; then
+    printf 'error: reference repository does not exist: %s\n' "${REFERENCE_REPOSITORY}" >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "${REFERENCE_REPOSITORY}")"
+  git clone --quiet "${CANONICAL_REMOTE}" "${REFERENCE_REPOSITORY}"
+fi
+REFERENCE_REPOSITORY="$(cd "${REFERENCE_REPOSITORY}" && pwd)"
+
+if [[ "${FETCH}" == 'true' ]]; then
+  git -C "${REFERENCE_REPOSITORY}" fetch --quiet origin --prune
+fi
+
+remote_branch=''
+if remote_head="$(git -C "${REFERENCE_REPOSITORY}" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)"; then
+  remote_branch="${remote_head#origin/}"
+elif git -C "${REFERENCE_REPOSITORY}" show-ref --verify --quiet refs/remotes/origin/main; then
+  remote_branch='main'
+fi
+
+if [[ "${FETCH}" == 'true' && -z "${remote_branch}" ]]; then
+  printf '%s\n' 'error: central origin has no discoverable default branch' >&2
+  exit 1
+fi
+
+target_common="$(git -C "${TARGET_REPOSITORY}" rev-parse --path-format=absolute --git-common-dir)"
+reference_common="$(git -C "${REFERENCE_REPOSITORY}" rev-parse --path-format=absolute --git-common-dir)"
+
+if [[ "${target_common}" == "${reference_common}" ]]; then
+  if [[ "${FETCH}" != 'true' ]]; then
+    printf 'agentic-current\trepository=%s\tmode=working-tree\n' "${TARGET_REPOSITORY}"
+    exit 0
+  fi
+
+  remote_ref="refs/remotes/origin/${remote_branch}"
+  local_commit="$(git -C "${REFERENCE_REPOSITORY}" rev-parse HEAD)"
+  remote_commit="$(git -C "${REFERENCE_REPOSITORY}" rev-parse "${remote_ref}")"
+  if [[ "${local_commit}" == "${remote_commit}" ]]; then
+    printf 'agentic-current\trepository=%s\tcommit=%s\n' "${TARGET_REPOSITORY}" "${remote_commit}"
+    exit 0
+  fi
+  if [[ -n "$(git -C "${REFERENCE_REPOSITORY}" status --porcelain)" ]]; then
+    printf 'error: central standard has local changes and remote updates are available: %s\n' "${REFERENCE_REPOSITORY}" >&2
+    exit 1
+  fi
+  if ! git -C "${REFERENCE_REPOSITORY}" merge-base --is-ancestor HEAD "${remote_ref}"; then
+    printf '%s\n' 'error: central standard has diverged from its remote default branch' >&2
+    exit 1
+  fi
+  current_branch="$(git -C "${REFERENCE_REPOSITORY}" branch --show-current)"
+  if [[ "${current_branch}" != "${remote_branch}" ]]; then
+    printf 'error: central standard is on %s, but origin default is %s\n' "${current_branch:-detached HEAD}" "${remote_branch}" >&2
+    exit 1
+  fi
+  git -C "${REFERENCE_REPOSITORY}" merge --ff-only --quiet "${remote_ref}"
+  printf 'agentic-updated\trepository=%s\tcommit=%s\n' "${TARGET_REPOSITORY}" "${remote_commit}"
+  exit 0
+fi
+
+snapshot=''
+cleanup() {
+  if [[ -n "${snapshot}" && -d "${snapshot}" ]]; then
+    rm -rf "${snapshot}"
+  fi
+}
+trap cleanup EXIT
+
+if [[ "${FETCH}" == 'true' ]]; then
+  snapshot="$(mktemp -d "${TMPDIR:-/tmp}/ai-agentic-update.XXXXXX")"
+  remote_ref="refs/remotes/origin/${remote_branch}"
+  central_commit="$(git -C "${REFERENCE_REPOSITORY}" rev-parse "${remote_ref}")"
+  git -C "${REFERENCE_REPOSITORY}" archive "${remote_ref}" | tar -x -C "${snapshot}"
+  update_source="${snapshot}"
+else
+  central_commit="$(git -C "${REFERENCE_REPOSITORY}" rev-parse HEAD)"
+  update_source="${REFERENCE_REPOSITORY}"
+fi
+
+if [[ ! -x "${update_source}/scripts/sync" ]]; then
+  if [[ "${FETCH}" == 'true' && -x "${TARGET_REPOSITORY}/.agents/skills/ai-agentic-update/scripts/update" ]]; then
+    printf 'agentic-bootstrap-pending\trepository=%s\tremote-commit=%s\n' \
+      "${TARGET_REPOSITORY}" "${central_commit}"
+    exit 0
+  fi
+  printf 'error: central source does not contain an executable scripts/sync: %s\n' "${update_source}" >&2
+  exit 1
+fi
+
+"${update_source}/scripts/sync" --write --repository "${TARGET_REPOSITORY}"
+"${update_source}/scripts/sync" --check --repository "${TARGET_REPOSITORY}"
+
+printf 'agentic-updated\trepository=%s\tcommit=%s\n' "${TARGET_REPOSITORY}" "${central_commit}"

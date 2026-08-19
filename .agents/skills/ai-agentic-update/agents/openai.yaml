@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Agentic Update"
+  short_description: "Refresh this repo from the central agentic standard"
+  default_prompt: "Use $ai-agentic-update to refresh this repository from the latest central agentic-coding rules and skills, then report what changed."
