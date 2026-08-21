@@ -13,14 +13,43 @@ weaken or contradict these rules.
   root.
 - The updater must fetch the central `agentic-coding` standard and, when a newer
   version exists, refresh only the managed rules and centrally owned skills in
-  the current repository. Reread the updated root `AGENTS.md` and any applicable
-  skills before continuing.
+  the current repository. It must also verify the repository wiki checkout at
+  `./wiki`, clone the repository's wiki there when the remote wiki exists, and
+  validate that an existing checkout points to the expected wiki remote. Reread
+  the updated root `AGENTS.md`, any applicable skills, and the relevant wiki
+  pages before continuing.
 - Do not silently skip or weaken the freshness check. If the central source
   cannot be verified or the update fails, stop before other repository mutations
   and report the exact failure.
 - The freshness update must preserve repository-local instructions, local-only
-  skills, and unrelated worktree changes. It must not commit, push, deploy,
-  reset, rebase, or discard changes.
+  skills, wiki changes, and unrelated worktree changes. It must not commit,
+  push, deploy, reset, rebase, or discard changes.
+
+## Repository wiki and documentation
+
+- Every managed repository's GitHub wiki must be available as a separate Git
+  checkout at `./wiki`. The startup updater derives the wiki URL from the
+  repository's `origin`, clones it when available, and excludes `./wiki` from
+  the parent repository through local Git metadata. Never treat the wiki as
+  ordinary untracked parent-repository content.
+- Before planning or changing code, inspect the relevant wiki pages alongside
+  the code and repository documentation. Do not rely on a stale architectural,
+  operational, API, configuration, deployment, or user-workflow assumption when
+  the wiki can establish the intended contract.
+- Documentation is part of every implementation, fix, refactor, migration, and
+  configuration change. Update the relevant wiki pages in the same task whenever
+  behavior, architecture, interfaces, setup, operations, deployment, or
+  troubleshooting guidance changes.
+- When a code change genuinely has no documentation impact, verify that the
+  relevant wiki remains accurate and state that explicitly in the handoff. Do
+  not use “no documentation impact” without checking.
+- Preserve unrelated or uncommitted wiki work. Wiki commits and pushes are
+  separate external writes: make them only when the task authorizes publishing,
+  and report code-repository and wiki-repository status separately.
+- If the repository has no `origin`, its wiki remote does not exist yet, or wiki
+  access fails, report that condition explicitly and continue using in-repository
+  documentation unless the task requires wiki publication. Do not fabricate a
+  wiki remote or silently skip documentation.
 
 ## Feature completeness
 
