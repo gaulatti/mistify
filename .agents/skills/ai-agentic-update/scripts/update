@@ -12,6 +12,81 @@ usage() {
   printf '%s\n' 'Usage: update [--repository PATH] [--reference-repository PATH] [--no-fetch]'
 }
 
+wiki_remote_from_origin() {
+  local origin_url="$1"
+  if [[ "${origin_url}" == *.git ]]; then
+    printf '%s.wiki.git\n' "${origin_url%.git}"
+  else
+    printf '%s.wiki.git\n' "${origin_url}"
+  fi
+}
+
+ensure_wiki_checkout() {
+  local repository="$1"
+  local wiki_directory="${repository}/wiki"
+  local origin_url=''
+  local wiki_remote=''
+  local existing_remote=''
+  local exclude_file=''
+  local wiki_branch=''
+
+  origin_url="$(git -C "${repository}" remote get-url origin 2>/dev/null || true)"
+  if [[ -z "${origin_url}" ]]; then
+    printf 'wiki-unavailable\trepository=%s\treason=no-origin\n' "${repository}"
+    return 0
+  fi
+  wiki_remote="$(wiki_remote_from_origin "${origin_url}")"
+
+  exclude_file="$(git -C "${repository}" rev-parse --path-format=absolute --git-path info/exclude)"
+  mkdir -p "$(dirname "${exclude_file}")"
+  touch "${exclude_file}"
+  if ! grep -Fqx '/wiki/' "${exclude_file}"; then
+    printf '\n/wiki/\n' >> "${exclude_file}"
+  fi
+
+  if [[ -e "${wiki_directory}" && ! -d "${wiki_directory}/.git" ]]; then
+    printf 'error: ./wiki exists but is not a Git checkout: %s\n' "${wiki_directory}" >&2
+    return 1
+  fi
+
+  if [[ ! -d "${wiki_directory}/.git" ]]; then
+    if GIT_TERMINAL_PROMPT=0 git clone --quiet "${wiki_remote}" "${wiki_directory}" 2>/dev/null; then
+      printf 'wiki-cloned\trepository=%s\tremote=%s\n' "${repository}" "${wiki_remote}"
+      return 0
+    fi
+    rm -rf "${wiki_directory}"
+    printf 'wiki-unavailable\trepository=%s\tremote=%s\treason=remote-not-found-or-inaccessible\n' \
+      "${repository}" "${wiki_remote}"
+    return 0
+  fi
+
+  existing_remote="$(git -C "${wiki_directory}" remote get-url origin 2>/dev/null || true)"
+  if [[ "${existing_remote}" != "${wiki_remote}" ]]; then
+    printf 'error: ./wiki origin mismatch: expected %s, found %s\n' \
+      "${wiki_remote}" "${existing_remote:-no-origin}" >&2
+    return 1
+  fi
+
+  if ! GIT_TERMINAL_PROMPT=0 git -C "${wiki_directory}" fetch --quiet origin --prune 2>/dev/null; then
+    printf 'wiki-unavailable\trepository=%s\tremote=%s\treason=fetch-failed\n' \
+      "${repository}" "${wiki_remote}"
+    return 0
+  fi
+
+  if [[ -n "$(git -C "${wiki_directory}" status --porcelain)" ]]; then
+    printf 'wiki-current\trepository=%s\tstate=dirty-preserved\n' "${repository}"
+    return 0
+  fi
+
+  wiki_branch="$(git -C "${wiki_directory}" branch --show-current)"
+  if [[ -n "${wiki_branch}" ]] && git -C "${wiki_directory}" show-ref --verify --quiet "refs/remotes/origin/${wiki_branch}"; then
+    if git -C "${wiki_directory}" merge-base --is-ancestor HEAD "refs/remotes/origin/${wiki_branch}"; then
+      git -C "${wiki_directory}" merge --ff-only --quiet "refs/remotes/origin/${wiki_branch}"
+    fi
+  fi
+  printf 'wiki-current\trepository=%s\tremote=%s\n' "${repository}" "${wiki_remote}"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repository)
@@ -94,6 +169,7 @@ reference_common="$(git -C "${REFERENCE_REPOSITORY}" rev-parse --path-format=abs
 
 if [[ "${target_common}" == "${reference_common}" ]]; then
   if [[ "${FETCH}" != 'true' ]]; then
+    ensure_wiki_checkout "${TARGET_REPOSITORY}"
     printf 'agentic-current\trepository=%s\tmode=working-tree\n' "${TARGET_REPOSITORY}"
     exit 0
   fi
@@ -102,6 +178,7 @@ if [[ "${target_common}" == "${reference_common}" ]]; then
   local_commit="$(git -C "${REFERENCE_REPOSITORY}" rev-parse HEAD)"
   remote_commit="$(git -C "${REFERENCE_REPOSITORY}" rev-parse "${remote_ref}")"
   if [[ "${local_commit}" == "${remote_commit}" ]]; then
+    ensure_wiki_checkout "${TARGET_REPOSITORY}"
     printf 'agentic-current\trepository=%s\tcommit=%s\n' "${TARGET_REPOSITORY}" "${remote_commit}"
     exit 0
   fi
@@ -119,6 +196,7 @@ if [[ "${target_common}" == "${reference_common}" ]]; then
     exit 1
   fi
   git -C "${REFERENCE_REPOSITORY}" merge --ff-only --quiet "${remote_ref}"
+  ensure_wiki_checkout "${TARGET_REPOSITORY}"
   printf 'agentic-updated\trepository=%s\tcommit=%s\n' "${TARGET_REPOSITORY}" "${remote_commit}"
   exit 0
 fi
@@ -154,5 +232,6 @@ fi
 
 "${update_source}/scripts/sync" --write --repository "${TARGET_REPOSITORY}"
 "${update_source}/scripts/sync" --check --repository "${TARGET_REPOSITORY}"
+ensure_wiki_checkout "${TARGET_REPOSITORY}"
 
 printf 'agentic-updated\trepository=%s\tcommit=%s\n' "${TARGET_REPOSITORY}" "${central_commit}"
