@@ -21,6 +21,68 @@ wiki_remote_from_origin() {
   fi
 }
 
+github_slug_from_url() {
+  local url="$1"
+  local slug=''
+  local owner=''
+  local repo=''
+  case "${url}" in
+    git@github.com:*)
+      slug="${url#git@github.com:}"
+      ;;
+    git@github.com/*)
+      slug="${url#git@github.com/}"
+      ;;
+    ssh://git@github.com:*)
+      slug="${url#ssh://git@github.com:}"
+      ;;
+    ssh://git@github.com/*)
+      slug="${url#ssh://git@github.com/}"
+      ;;
+    https://github.com/*)
+      slug="${url#https://github.com/}"
+      ;;
+    http://github.com/*)
+      slug="${url#http://github.com/}"
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+  slug="${slug#/}"
+  slug="${slug%/}"
+  slug="${slug%.git}"
+  owner="${slug%%/*}"
+  repo="${slug#*/}"
+  repo="${repo%%/*}"
+  if [[ -n "${owner}" && -n "${repo}" ]]; then
+    printf '%s/%s\n' "${owner}" "${repo}"
+  fi
+}
+
+repository_visibility() {
+  local repository="$1"
+  local origin_url=''
+  local slug=''
+  local visibility=''
+  origin_url="$(git -C "${repository}" config --get remote.origin.url 2>/dev/null || true)"
+  if [[ -z "${origin_url}" ]]; then
+    printf 'unknown\n'
+    return 0
+  fi
+  slug="$(github_slug_from_url "${origin_url}")"
+  if [[ -z "${slug}" ]]; then
+    printf 'unknown\n'
+    return 0
+  fi
+  if command -v gh >/dev/null 2>&1 \
+    && visibility="$(gh repo view "${slug}" --json visibility --jq .visibility 2>/dev/null)"; then
+    printf '%s\n' "${visibility}" | tr '[:upper:]' '[:lower:]'
+  else
+    printf 'unknown\n'
+  fi
+}
+
 ensure_wiki_checkout() {
   local repository="$1"
   local wiki_directory="${repository}/wiki"
@@ -29,13 +91,22 @@ ensure_wiki_checkout() {
   local existing_remote=''
   local exclude_file=''
   local wiki_branch=''
+  local visibility=''
 
-  origin_url="$(git -C "${repository}" remote get-url origin 2>/dev/null || true)"
+  origin_url="$(git -C "${repository}" config --get remote.origin.url 2>/dev/null || true)"
   if [[ -z "${origin_url}" ]]; then
     printf 'wiki-unavailable\trepository=%s\treason=no-origin\n' "${repository}"
     return 0
   fi
   wiki_remote="$(wiki_remote_from_origin "${origin_url}")"
+
+  visibility="$(repository_visibility "${repository}")"
+  if [[ "${visibility}" != 'public' && "${visibility}" != 'unknown' \
+    && ! -d "${wiki_directory}/.git" ]]; then
+    printf 'wiki-skip\trepository=%s\tvisibility=%s\treason=non-public-repository\n' \
+      "${repository}" "${visibility}"
+    return 0
+  fi
 
   exclude_file="$(git -C "${repository}" rev-parse --path-format=absolute --git-path info/exclude)"
   mkdir -p "$(dirname "${exclude_file}")"
@@ -60,7 +131,7 @@ ensure_wiki_checkout() {
     return 0
   fi
 
-  existing_remote="$(git -C "${wiki_directory}" remote get-url origin 2>/dev/null || true)"
+  existing_remote="$(git -C "${wiki_directory}" config --get remote.origin.url 2>/dev/null || true)"
   if [[ "${existing_remote}" != "${wiki_remote}" ]]; then
     printf 'error: ./wiki origin mismatch: expected %s, found %s\n' \
       "${wiki_remote}" "${existing_remote:-no-origin}" >&2

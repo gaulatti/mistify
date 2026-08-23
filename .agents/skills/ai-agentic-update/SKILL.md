@@ -21,16 +21,19 @@ root first and execute the script from there. After a successful update, reread
 the root `AGENTS.md` and any applicable updated skills before continuing.
 
 The helper fetches the central repository, hydrates the current repository from
-the fetched default-branch snapshot, and verifies the result. It also verifies
-the repository's separate `./wiki` checkout, clones the wiki when its derived
-remote exists, and validates an existing checkout's origin. It preserves
-instructions outside the managed markers, differently named local skills,
-uncommitted wiki work, and unrelated product changes.
+the fetched default-branch snapshot, and verifies the result. Wiki management
+applies only to public repositories, determined from the GitHub visibility of
+the repository's `origin`: it verifies the repository's separate `./wiki`
+checkout, clones the wiki when its derived remote exists, and validates an
+existing checkout's origin. Private repositories are skipped unless a `./wiki`
+checkout already exists, in which case it is preserved and kept current. It
+preserves instructions outside the managed markers, differently named local
+skills, uncommitted wiki work, and unrelated product changes.
 
 Do not replace this command with hand-written copying. After it completes,
-inspect the relevant wiki pages before planning code changes. Do not commit,
-push, deploy, reset, rebase, or discard product or wiki worktree changes as part
-of the refresh.
+inspect the relevant wiki pages in public repositories before planning code
+changes. Do not commit, push, deploy, reset, rebase, or discard product or wiki
+worktree changes as part of the refresh.
 
 If the updater fails or cannot verify the central source, stop before making
 other repository mutations and report the exact failure. Do not silently work
