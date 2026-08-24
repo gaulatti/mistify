@@ -26,11 +26,13 @@ import psutil
 import torch
 import warnings
 import pathlib
+import secrets
 import time
+from typing import Annotated
 from redis.asyncio import Redis
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import Response
 from types import SimpleNamespace
 from dotenv import load_dotenv
@@ -45,6 +47,7 @@ from src.grpc.server import start_grpc_server
 from src.operations.queue import OperationQueue
 from src.operations.worker import OperationWorker
 from src import metrics
+from src.version import VERSION
 
 load_dotenv()
 
@@ -81,7 +84,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="Mistify",
     description="Language detection, content classification, translation, sentence embeddings, and entity-aware clustering",
-    version="1.3.0",
+    version=VERSION,
     lifespan=lifespan,
 )
 
@@ -106,6 +109,9 @@ app_state.config = {
     "PROCESSING_TRANSLATE_TO_ENGLISH": os.getenv("PROCESSING_TRANSLATE_TO_ENGLISH", "true").lower() in {"1", "true", "yes"},
     "MONITOR_GRPC_CALLBACK_TARGET": os.getenv("MONITOR_GRPC_CALLBACK_TARGET", "localhost:50055"),
     "HTTP_PORT": int(os.getenv("HTTP_PORT", "8000")),
+    "METRICS_BEARER_TOKEN": metrics.require_metrics_token(
+        os.getenv("METRICS_BEARER_TOKEN")
+    ),
     "VALKEY_HOST": os.getenv("VALKEY_HOST", "host.docker.internal"),
     "VALKEY_PORT": int(os.getenv("VALKEY_PORT", "6379")),
     "HF_CACHE": pathlib.Path(os.environ.get("HF_HOME", pathlib.Path.home() / ".hf_models")),
@@ -189,8 +195,7 @@ async def add_state_to_request(request: Request, call_next):
 @app.middleware("http")
 async def prometheus_http_metrics(request: Request, call_next):
     method = request.method
-    route_label = metrics.route_label_from_request_scope(request.scope)
-
+    status_code = "500"
     start = time.perf_counter()
     metrics.HTTP_INPROGRESS.inc()
     try:
@@ -201,16 +206,24 @@ async def prometheus_http_metrics(request: Request, call_next):
         # Expected HTTP errors (4xx/5xx raised intentionally by handlers).
         status_code = str(e.status_code)
         raise
-    except Exception as e:
+    except Exception:
         # Unexpected exception. FastAPI will turn this into a 500.
-        metrics.HTTP_EXCEPTIONS_TOTAL.labels(method=method, route=route_label, exception_type=type(e).__name__).inc()
+        route_label = metrics.route_label_from_request_scope(request.scope)
+        metrics.HTTP_EXCEPTIONS_TOTAL.labels(
+            method=method, route=route_label, failure_type="unexpected"
+        ).inc()
         status_code = "500"
         raise
     finally:
         duration = time.perf_counter() - start
+        route_label = metrics.route_label_from_request_scope(request.scope)
         metrics.HTTP_INPROGRESS.dec()
-        metrics.HTTP_REQUESTS_TOTAL.labels(method=method, route=route_label, status_code=status_code).inc()
-        metrics.HTTP_REQUEST_DURATION_SECONDS.labels(method=method, route=route_label, status_code=status_code).observe(duration)
+        metrics.HTTP_REQUESTS_TOTAL.labels(
+            method=method, route=route_label, status_code=status_code
+        ).inc()
+        metrics.HTTP_REQUEST_DURATION_SECONDS.labels(
+            method=method, route=route_label, status_code=status_code
+        ).observe(duration)
 
 
 # ---- API Routers ---------------------------------------------------------------
@@ -244,10 +257,21 @@ def health():
 
 
 @app.get("/metrics")
-def prometheus_metrics():
-    """Prometheus scrape endpoint."""
+async def prometheus_metrics(
+    authorization: Annotated[str | None, Header()] = None,
+):
+    """Private Prometheus scrape endpoint protected by a bearer token."""
+    expected = f"Bearer {app_state.config['METRICS_BEARER_TOKEN']}"
+    if not secrets.compare_digest(authorization or "", expected):
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # Keep gauges fresh on each scrape.
     metrics.update_runtime_metrics(app_state)
+    metrics.record_queue_depth(await app_state.operation_queue.size())
     payload = generate_latest()  # default registry
     return Response(content=payload, media_type=CONTENT_TYPE_LATEST)
 
@@ -257,7 +281,7 @@ def root():
     """Root endpoint with API information"""
     return {
         "service": "Unified Text Analysis API",
-        "version": "1.3.0",
+        "version": VERSION,
         "capabilities": ["language_detection", "content_classification", "translation", "text_clustering"],
         "operation_queue": {
             "queue_name": app_state.operation_queue.queue_name,

@@ -14,11 +14,45 @@ from __future__ import annotations
 import subprocess
 import time
 from contextlib import contextmanager
+from functools import wraps
 from typing import Optional
 
 import psutil
 import torch
 from prometheus_client import Counter, Gauge, Histogram, Info
+
+from src.version import VERSION
+
+OPERATIONS = frozenset(
+    {
+        "analyze",
+        "analyze_posts",
+        "classify",
+        "classify_content",
+        "cluster",
+        "cluster_post",
+        "detect_language",
+        "embed",
+        "embed_text",
+        "generate_scout_queries",
+        "language_detect",
+        "rank_scout_candidates",
+        "translate",
+        "translate_text",
+    }
+)
+RPC_METHODS = frozenset(
+    {
+        "AnalyzePosts",
+        "ClassifyContent",
+        "ClusterPost",
+        "DetectLanguage",
+        "EmbedText",
+        "GenerateScoutQueries",
+        "RankScoutCandidates",
+        "TranslateText",
+    }
+)
 
 # ---- Build / service identity -------------------------------------------------
 
@@ -31,6 +65,7 @@ BUILD_INFO = Info(
 BUILD_INFO.info(
     {
         "service": "mistify",
+        "version": VERSION,
     }
 )
 
@@ -73,7 +108,22 @@ HTTP_INPROGRESS = Gauge(
 HTTP_EXCEPTIONS_TOTAL = Counter(
     "mistify_http_exceptions_total",
     "Unhandled exceptions raised while processing HTTP requests",
-    labelnames=("method", "route", "exception_type"),
+    labelnames=("method", "route", "failure_type"),
+)
+
+# ---- gRPC --------------------------------------------------------------------
+
+RPC_REQUESTS_TOTAL = Counter(
+    "mistify_grpc_requests_total",
+    "Total gRPC requests received",
+    labelnames=("method", "outcome"),
+)
+
+RPC_REQUEST_DURATION_SECONDS = Histogram(
+    "mistify_grpc_request_duration_seconds",
+    "gRPC request latency in seconds",
+    labelnames=("method", "outcome"),
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
 )
 
 # ---- Model / operation-level metrics -----------------------------------------
@@ -194,6 +244,43 @@ OPERATION_FAILURES_TOTAL = Counter(
     labelnames=("operation", "failure_type"),
 )
 
+OPERATION_JOBS_TOTAL = Counter(
+    "mistify_operation_jobs_total",
+    "Total asynchronous operation jobs completed",
+    labelnames=("operation", "outcome"),
+)
+
+OPERATION_JOB_DURATION_SECONDS = Histogram(
+    "mistify_operation_job_duration_seconds",
+    "Duration of asynchronous operation jobs in seconds",
+    labelnames=("operation", "outcome"),
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 40, 80, 160),
+)
+
+OPERATION_QUEUE_EVENTS_TOTAL = Counter(
+    "mistify_operation_queue_events_total",
+    "Total operation queue transitions",
+    labelnames=("operation", "outcome"),
+)
+
+OPERATION_QUEUE_DEPTH = Gauge(
+    "mistify_operation_queue_depth",
+    "Number of operations currently stored in the Redis queue",
+)
+
+CALLBACK_REQUESTS_TOTAL = Counter(
+    "mistify_callback_requests_total",
+    "Total callback delivery attempts",
+    labelnames=("channel", "outcome"),
+)
+
+CALLBACK_REQUEST_DURATION_SECONDS = Histogram(
+    "mistify_callback_request_duration_seconds",
+    "Callback delivery attempt duration in seconds",
+    labelnames=("channel", "outcome"),
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30),
+)
+
 # ---- System gauges (updated at scrape-time) ----------------------------------
 
 PROCESS_RSS_BYTES = Gauge(
@@ -214,20 +301,17 @@ TORCH_DEVICE_INFO = Gauge(
 
 GPU_MEMORY_ALLOCATED_BYTES = Gauge(
     "mistify_gpu_memory_allocated_bytes",
-    "GPU memory currently allocated by PyTorch in bytes",
-    labelnames=("device_id",),
+    "Total GPU memory currently allocated by PyTorch in bytes",
 )
 
 GPU_MEMORY_RESERVED_BYTES = Gauge(
     "mistify_gpu_memory_reserved_bytes",
-    "GPU memory currently reserved by PyTorch in bytes",
-    labelnames=("device_id",),
+    "Total GPU memory currently reserved by PyTorch in bytes",
 )
 
 GPU_UTILIZATION_PERCENT = Gauge(
     "mistify_gpu_utilization_percent",
-    "GPU utilization percentage (if available via nvidia-smi)",
-    labelnames=("device_id",),
+    "Maximum GPU utilization percentage (if available via nvidia-smi)",
 )
 
 
@@ -241,48 +325,69 @@ def update_runtime_metrics(app_state: Optional[object] = None) -> None:
     PROCESS_RSS_BYTES.set(p.memory_info().rss)
     PROCESS_THREADS.set(p.num_threads())
 
-    TORCH_DEVICE_INFO.labels(device="cuda").set(1.0 if torch.cuda.is_available() else 0.0)
-    TORCH_DEVICE_INFO.labels(device="mps").set(1.0 if torch.backends.mps.is_available() else 0.0)
+    TORCH_DEVICE_INFO.labels(device="cuda").set(
+        1.0 if torch.cuda.is_available() else 0.0
+    )
+    TORCH_DEVICE_INFO.labels(device="mps").set(
+        1.0 if torch.backends.mps.is_available() else 0.0
+    )
     TORCH_DEVICE_INFO.labels(device="cpu").set(1.0)
 
     # Update GPU metrics if CUDA is available
     if torch.cuda.is_available():
         try:
             device_count = torch.cuda.device_count()
+            allocated_total = 0
+            reserved_total = 0
+            utilization = []
             for device_id in range(device_count):
                 # Get memory stats
                 allocated = torch.cuda.memory_allocated(device_id)
                 reserved = torch.cuda.memory_reserved(device_id)
                 
-                GPU_MEMORY_ALLOCATED_BYTES.labels(device_id=str(device_id)).set(allocated)
-                GPU_MEMORY_RESERVED_BYTES.labels(device_id=str(device_id)).set(reserved)
+                allocated_total += allocated
+                reserved_total += reserved
                 
                 # Try to get GPU utilization using nvidia-smi (optional)
                 try:
                     result = subprocess.run(
-                        ['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits', 
-                         '-i', str(device_id)],
+                        [
+                            "nvidia-smi",
+                            "--query-gpu=utilization.gpu",
+                            "--format=csv,noheader,nounits",
+                            "-i",
+                            str(device_id),
+                        ],
                         capture_output=True,
                         text=True,
                         timeout=1
                     )
                     if result.returncode == 0:
                         util = float(result.stdout.strip())
-                        GPU_UTILIZATION_PERCENT.labels(device_id=str(device_id)).set(util)
+                        utilization.append(util)
                 except Exception:
                     # nvidia-smi not available or failed, skip utilization metric
                     pass
         except Exception:
             # GPU metrics collection failed, continue with other metrics
             pass
+        else:
+            GPU_MEMORY_ALLOCATED_BYTES.set(allocated_total)
+            GPU_MEMORY_RESERVED_BYTES.set(reserved_total)
+            if utilization:
+                GPU_UTILIZATION_PERCENT.set(max(utilization))
 
     if app_state is not None:
         # Keep model names stable to avoid label cardinality explosions.
-        MODEL_AVAILABLE.labels(model="fasttext").set(1.0 if getattr(app_state, "fasttext_model", None) is not None else 0.0)
-        MODEL_AVAILABLE.labels(model="classifier").set(1.0 if getattr(app_state, "classifier", None) is not None else 0.0)
-        MODEL_AVAILABLE.labels(model="translator").set(1.0 if getattr(app_state, "translator", None) is not None else 0.0)
-        MODEL_AVAILABLE.labels(model="embedder").set(1.0 if getattr(app_state, "embedder", None) is not None else 0.0)
-        MODEL_AVAILABLE.labels(model="nlp").set(1.0 if getattr(app_state, "nlp", None) is not None else 0.0)
+        for metric_name, attribute in (
+            ("fasttext", "fasttext_model"),
+            ("classifier", "classifier"),
+            ("translator", "translator"),
+            ("embedder", "embedder"),
+            ("nlp", "nlp"),
+        ):
+            available = getattr(app_state, attribute, None) is not None
+            MODEL_AVAILABLE.labels(model=metric_name).set(1.0 if available else 0.0)
 
 
 def route_label_from_request_scope(scope: dict) -> str:
@@ -305,6 +410,105 @@ def route_label_from_request_scope(scope: dict) -> str:
     return "unmatched"
 
 
+def require_metrics_token(value: Optional[str]) -> str:
+    """Require an explicit secret so metrics can never start unguarded."""
+
+    if not value:
+        raise RuntimeError("METRICS_BEARER_TOKEN is required")
+    return value
+
+
+def operation_label(value: str) -> str:
+    """Normalize operation values before they reach metric labels."""
+
+    return value if value in OPERATIONS else "unknown"
+
+
+def rpc_method_label(value: str) -> str:
+    """Normalize gRPC method values before they reach metric labels."""
+
+    return value if value in RPC_METHODS else "unknown"
+
+
+def record_rpc(method: str):
+    """Record a bounded result and duration for an async gRPC method."""
+
+    method_label = rpc_method_label(method)
+
+    def decorator(function):
+        @wraps(function)
+        async def instrumented(*args, **kwargs):
+            start = time.perf_counter()
+            outcome = "success"
+            try:
+                return await function(*args, **kwargs)
+            except Exception:
+                outcome = "error"
+                raise
+            finally:
+                duration = time.perf_counter() - start
+                RPC_REQUESTS_TOTAL.labels(method=method_label, outcome=outcome).inc()
+                RPC_REQUEST_DURATION_SECONDS.labels(
+                    method=method_label, outcome=outcome
+                ).observe(duration)
+
+        return instrumented
+
+    return decorator
+
+
+@contextmanager
+def record_job(operation: str):
+    """Record completion and duration for an asynchronous operation job."""
+
+    operation_name = operation_label(operation)
+    start = time.perf_counter()
+    outcome = "success"
+    try:
+        yield
+    except Exception:
+        outcome = "error"
+        raise
+    finally:
+        duration = time.perf_counter() - start
+        OPERATION_JOBS_TOTAL.labels(operation=operation_name, outcome=outcome).inc()
+        OPERATION_JOB_DURATION_SECONDS.labels(
+            operation=operation_name, outcome=outcome
+        ).observe(duration)
+
+
+def record_queue_event(operation: str, outcome: str) -> None:
+    """Record a controlled queue transition."""
+
+    controlled_outcome = (
+        outcome
+        if outcome in {"enqueued", "dequeued", "duplicate", "error"}
+        else "error"
+    )
+    OPERATION_QUEUE_EVENTS_TOTAL.labels(
+        operation=operation_label(operation), outcome=controlled_outcome
+    ).inc()
+
+
+def record_queue_depth(depth: int) -> None:
+    """Record the authoritative Redis queue depth observed at scrape time."""
+
+    OPERATION_QUEUE_DEPTH.set(max(0, depth))
+
+
+def record_callback(channel: str, outcome: str, duration_seconds: float) -> None:
+    """Record one callback dependency attempt without target/error labels."""
+
+    channel_label = channel if channel in {"grpc", "http"} else "unknown"
+    outcome_label = outcome if outcome in {"success", "error"} else "error"
+    CALLBACK_REQUESTS_TOTAL.labels(
+        channel=channel_label, outcome=outcome_label
+    ).inc()
+    CALLBACK_REQUEST_DURATION_SECONDS.labels(
+        channel=channel_label, outcome=outcome_label
+    ).observe(duration_seconds)
+
+
 @contextmanager
 def record_operation(operation: str, *, outcome: str = "success"):
     """Context manager to record an operation duration + outcome.
@@ -323,5 +527,10 @@ def record_operation(operation: str, *, outcome: str = "success"):
         raise
     finally:
         duration = time.perf_counter() - start
-        MODEL_OPERATION_TOTAL.labels(operation=operation, outcome=final_outcome).inc()
-        MODEL_OPERATION_DURATION_SECONDS.labels(operation=operation, outcome=final_outcome).observe(duration)
+        operation_name = operation_label(operation)
+        MODEL_OPERATION_TOTAL.labels(
+            operation=operation_name, outcome=final_outcome
+        ).inc()
+        MODEL_OPERATION_DURATION_SECONDS.labels(
+            operation=operation_name, outcome=final_outcome
+        ).observe(duration)

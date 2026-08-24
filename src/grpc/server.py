@@ -4,9 +4,15 @@ import os
 import grpc
 from google.protobuf.json_format import MessageToDict
 
+from src import metrics
 from src.grpc.mistify import operations_pb2, operations_pb2_grpc
 from src.helpers.scout_queries import generate_scout_queries, rank_scout_candidates
-from src.operations.models import GrpcCallback, HttpCallback, OperationContext, OperationEnvelope
+from src.operations.models import (
+    GrpcCallback,
+    HttpCallback,
+    OperationContext,
+    OperationEnvelope,
+)
 
 logger = logging.getLogger("mistify")
 
@@ -18,6 +24,7 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
         self.operation_queue = operation_queue
         self.app_state = app_state
 
+    @metrics.record_rpc("AnalyzePosts")
     async def AnalyzePosts(self, request, context):
         items = [
             {
@@ -38,14 +45,24 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
             context=self._context(request.context),
             metadata=MessageToDict(request.metadata, preserving_proto_field_name=True),
             callback=self._callback(request.callback),
-            grpc_callback=self._grpc_callback(request.grpc_callback),
+            grpc_callback=self._grpc_callback(
+                getattr(request, "grpc_callback", None)
+            ),
         )
-        queued = await self.operation_queue.enqueue(envelope)
+        try:
+            queued = await self.operation_queue.enqueue(envelope)
+        except Exception:
+            metrics.record_queue_event("analyze_posts", "error")
+            raise
+        metrics.record_queue_event(
+            "analyze_posts", "enqueued" if queued else "duplicate"
+        )
         return operations_pb2.EnqueueAnalysisResponse(
             operation_id=envelope.operation_id,
             queued=queued,
         )
 
+    @metrics.record_rpc("DetectLanguage")
     async def DetectLanguage(self, request, context):
         return await self._enqueue_request(
             "detect_language",
@@ -56,6 +73,7 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
             },
         )
 
+    @metrics.record_rpc("ClassifyContent")
     async def ClassifyContent(self, request, context):
         return await self._enqueue_request(
             "classify_content",
@@ -66,6 +84,7 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
             },
         )
 
+    @metrics.record_rpc("TranslateText")
     async def TranslateText(self, request, context):
         return await self._enqueue_request(
             "translate_text",
@@ -77,6 +96,7 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
             },
         )
 
+    @metrics.record_rpc("EmbedText")
     async def EmbedText(self, request, context):
         return await self._enqueue_request(
             "embed_text",
@@ -86,6 +106,7 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
             },
         )
 
+    @metrics.record_rpc("ClusterPost")
     async def ClusterPost(self, request, context):
         return await self._enqueue_request(
             "cluster_post",
@@ -93,6 +114,7 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
             MessageToDict(request.post, preserving_proto_field_name=True),
         )
 
+    @metrics.record_rpc("GenerateScoutQueries")
     async def GenerateScoutQueries(self, request, context):
         queries, translated_title, source_language = await generate_scout_queries(
             self.app_state,
@@ -106,6 +128,7 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
             source_language=source_language,
         )
 
+    @metrics.record_rpc("RankScoutCandidates")
     async def RankScoutCandidates(self, request, context):
         ranked = await rank_scout_candidates(
             self.app_state,
@@ -129,9 +152,18 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
             context=self._context(request.context),
             metadata=MessageToDict(request.metadata, preserving_proto_field_name=True),
             callback=self._callback(request.callback),
-            grpc_callback=self._grpc_callback(request.grpc_callback),
+            grpc_callback=self._grpc_callback(
+                getattr(request, "grpc_callback", None)
+            ),
         )
-        queued = await self.operation_queue.enqueue(envelope)
+        try:
+            queued = await self.operation_queue.enqueue(envelope)
+        except Exception:
+            metrics.record_queue_event(operation_type, "error")
+            raise
+        metrics.record_queue_event(
+            operation_type, "enqueued" if queued else "duplicate"
+        )
         return operations_pb2.EnqueueAnalysisResponse(
             operation_id=envelope.operation_id,
             queued=queued,

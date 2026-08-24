@@ -23,7 +23,7 @@ Mistify exposes a unified FastAPI service with endpoints for each helper:
 - `/cluster` — Text clustering
 - `/embed` — Generate sentence embeddings
 - `/health` — Health check
-- `/metrics` — Prometheus metrics for monitoring
+- `/metrics` — private bearer-authenticated Prometheus metrics for monitoring
 
 > **Note:** `/analyze` is not exposed as an HTTP endpoint. Use the gRPC `AnalyzePosts` method for unified multi-step analysis.
 
@@ -44,12 +44,16 @@ For detailed API documentation, including request/response examples, please see 
 
 ## Monitoring
 
-Mistify exposes comprehensive Prometheus metrics on the `/metrics` endpoint for monitoring:
+Mistify exposes comprehensive Prometheus metrics on the private `/metrics`
+endpoint. Scrapers must send `Authorization: Bearer <token>` using the required
+`METRICS_BEARER_TOKEN` secret; missing or invalid credentials return `401`.
 
 - **Request metrics**: Requests per minute, latency, errors
 - **Processing metrics**: Posts analyzed per minute, batch sizes
 - **GPU metrics**: Memory usage, utilization, anomaly detection
 - **Failure tracking**: Timeouts, errors, retries by operation
+- **Async workflow metrics**: gRPC submissions, Redis queue depth/events,
+  worker outcomes, callback dependency attempts, and retries
 
 For detailed metrics documentation and example queries, see [METRICS.md](METRICS.md).
 
@@ -128,6 +132,9 @@ Configure the service using the following environment variables:
 - `TRANSFORMERS_OFFLINE`: Set to `1` to enforce offline mode for Hugging Face models (default in Docker).
 - `HTTP_PORT`: HTTP server port used by FastAPI and Docker/Compose port mapping.
 - `GRPC_PORT`: gRPC port used by the service listener and Docker/Compose mapping (default: `50000`).
+- `METRICS_BEARER_TOKEN`: Required secret for the private `/metrics` endpoint.
+  Production deployments source it from the GitHub Actions secret with the
+  same name; the central `gaulatti/prometheus` scraper must hold that token.
 - `MONITOR_GRPC_CALLBACK_TARGET`: gRPC target (host:port) where Mistify sends `AnalyzePosts` results back to monitor (default: `localhost:50055`).
 - `DOCKER_PLATFORM`: Optional Docker platform override for Compose builds/runs (default: `linux/amd64`). Useful on Apple Silicon when base images are amd64-only.
 - `LOAD_MODELS_ON_STARTUP`: Set to `false` to start the API without eagerly loading models (fast boot; model-backed endpoints can return `503` until models are loaded by your runtime strategy).
