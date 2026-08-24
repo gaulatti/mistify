@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -8,7 +9,15 @@ import grpc
 import httpx
 from pydantic import ValidationError
 
-from src.endpoints import analysis, classification, clustering, embedding, language, translation
+from src import metrics
+from src.endpoints import (
+    analysis,
+    classification,
+    clustering,
+    embedding,
+    language,
+    translation,
+)
 from src.grpc.mistify import operations_pb2, operations_pb2_grpc
 from src.models import (
     ClassificationRequest,
@@ -100,7 +109,8 @@ class OperationWorker:
         )
 
         try:
-            result = await self._run_operation(envelope)
+            with metrics.record_job(envelope.operation_type):
+                result = await self._run_operation(envelope)
         except Exception as exc:
             logger.error(
                 "Operation %s failed: %s",
@@ -286,11 +296,33 @@ class OperationWorker:
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
     ) -> None:
+        channel = (
+            "grpc"
+            if envelope.grpc_callback
+            else "http"
+            if envelope.callback
+            else "none"
+        )
         for attempt in range(1, CALLBACK_MAX_ATTEMPTS + 1):
+            if attempt > 1:
+                metrics.OPERATION_RETRIES_TOTAL.labels(
+                    operation=metrics.operation_label(envelope.operation_type)
+                ).inc()
+            started_at = time.perf_counter()
             try:
-                await self._deliver_callback(envelope, status, result=result, error=error)
+                await self._deliver_callback(
+                    envelope, status, result=result, error=error
+                )
+                if channel != "none":
+                    metrics.record_callback(
+                        channel, "success", time.perf_counter() - started_at
+                    )
                 return
             except Exception as exc:
+                if channel != "none":
+                    metrics.record_callback(
+                        channel, "error", time.perf_counter() - started_at
+                    )
                 logger.error(
                     "Operation %s %s callback delivery failed (%s), attempt %d/%d: %s",
                     envelope.operation_id,

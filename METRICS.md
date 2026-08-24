@@ -1,6 +1,19 @@
 # Prometheus Metrics Documentation
 
-This document describes all the Prometheus metrics exposed by the Mistify service on the `/metrics` endpoint.
+This document describes all the Prometheus metrics exposed by the Mistify service on the private `/metrics` endpoint.
+
+## Private scrape boundary
+
+`METRICS_BEARER_TOKEN` is required at startup. Scrapers must send it as an
+`Authorization: Bearer <token>` header; missing or invalid credentials receive
+`401` with a Bearer challenge. The token is never written into metrics or
+responses. Production deployment reads it from the GitHub Actions secret named
+`METRICS_BEARER_TOKEN`.
+
+The central `gaulatti/prometheus` deployment owns scrape configuration,
+storage, dashboards, and alerts. It must reach Mistify only across the managed
+private service network and hold the bearer secret. This repository owns the
+application instrumentation and protected exposition only.
 
 ## Overview
 
@@ -11,6 +24,7 @@ The Mistify service exposes comprehensive metrics for monitoring:
 - GPU usage and anomalies
 - System resource utilization
 - Failures and timeouts
+- gRPC submissions, queue state, worker outcomes, callback dependencies, and retries
 
 ## Metric Categories
 
@@ -35,10 +49,27 @@ These metrics track all HTTP requests to the service:
 
 - **`mistify_http_exceptions_total`** (Counter)
   - Description: Unhandled exceptions during request processing
-  - Labels: `method`, `route`, `exception_type`
+  - Labels: `method`, `route`, `failure_type`
+  - Failure types: `unexpected`
   - Use case: Track unexpected errors
 
-### 2. Posts/Items Processing Metrics
+### 2. gRPC and asynchronous workflow metrics
+
+- **`mistify_grpc_requests_total`** / **`mistify_grpc_request_duration_seconds`**
+  - Labels: bounded `method` and `outcome` values
+  - Methods are restricted to the eight declared Mistify RPCs; unknown values
+    normalize to `unknown`
+- **`mistify_operation_queue_events_total`**
+  - Labels: bounded `operation` and `outcome` (`enqueued`, `dequeued`, `duplicate`, `error`)
+- **`mistify_operation_queue_depth`**
+  - Authoritative Redis queue length observed during each authenticated scrape
+- **`mistify_operation_jobs_total`** / **`mistify_operation_job_duration_seconds`**
+  - Labels: bounded operation and outcome for worker completion
+- **`mistify_callback_requests_total`** / **`mistify_callback_request_duration_seconds`**
+  - Labels: callback channel (`http` or `grpc`) and bounded outcome
+  - Callback targets, headers, payloads, and error strings are never labels
+
+### 3. Posts/Items Processing Metrics
 
 These metrics track the volume of posts and items being processed:
 
@@ -54,7 +85,7 @@ These metrics track the volume of posts and items being processed:
   - Buckets: 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000
   - Use case: **Track how many posts come in every request**
 
-### 3. Model Operation Metrics
+### 4. Model Operation Metrics
 
 These metrics track individual model operations:
 
@@ -77,7 +108,7 @@ These metrics track individual model operations:
   - Models: `fasttext`, `classifier`, `translator`, `embedder`, `nlp`
   - Use case: Monitor model availability
 
-### 4. Failure and Retry Metrics
+### 5. Failure and Retry Metrics
 
 These metrics track failures and retries:
 
@@ -90,28 +121,28 @@ These metrics track failures and retries:
 - **`mistify_operation_retries_total`** (Counter)
   - Description: Total number of operation retries
   - Labels: `operation`
-  - Use case: Monitor retry patterns (reserved for future use)
+  - Use case: Monitor callback-delivery retry patterns
 
-### 5. GPU Usage Metrics
+### 6. GPU Usage Metrics
 
 These metrics track GPU utilization and memory:
 
 - **`mistify_gpu_memory_allocated_bytes`** (Gauge)
-  - Description: GPU memory currently allocated by PyTorch in bytes
-  - Labels: `device_id`
+  - Description: Total GPU memory currently allocated by PyTorch in bytes
+  - Labels: none
   - Use case: **Monitor GPU memory usage**
 
 - **`mistify_gpu_memory_reserved_bytes`** (Gauge)
-  - Description: GPU memory currently reserved by PyTorch in bytes
-  - Labels: `device_id`
+  - Description: Total GPU memory currently reserved by PyTorch in bytes
+  - Labels: none
   - Use case: **Monitor GPU memory reservation**
 
 - **`mistify_gpu_utilization_percent`** (Gauge)
-  - Description: GPU utilization percentage (if nvidia-smi is available)
-  - Labels: `device_id`
+  - Description: Maximum GPU utilization percentage across visible devices (if nvidia-smi is available)
+  - Labels: none
   - Use case: **Detect anomalies with GPU usage**
 
-### 6. System Metrics
+### 7. System Metrics
 
 These metrics track system resource utilization:
 
@@ -131,7 +162,7 @@ These metrics track system resource utilization:
 
 - **`mistify_build_info`** (Info)
   - Description: Mistify build and runtime info
-  - Labels: `service`
+  - Labels: `service`, `version`
   - Use case: Service identification
 
 ## Example Prometheus Queries

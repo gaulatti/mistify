@@ -4,6 +4,7 @@ from typing import Optional
 
 from redis.asyncio import Redis
 
+from src import metrics
 from src.operations.models import OperationEnvelope, QueuedOperation
 
 logger = logging.getLogger("mistify")
@@ -163,14 +164,20 @@ class OperationQueue:
             return None
 
         _, raw = result
-        return self._parse(raw)
+        queued = self._parse(raw)
+        if queued is not None:
+            metrics.record_queue_event(queued.envelope.operation_type, "dequeued")
+        return queued
 
     async def dequeue_nowait(self) -> Optional[QueuedOperation]:
         """Pop the next operation without blocking."""
         raw = await self.redis.rpop(self.queue_name)
         if raw is None:
             return None
-        return self._parse(raw)
+        queued = self._parse(raw)
+        if queued is not None:
+            metrics.record_queue_event(queued.envelope.operation_type, "dequeued")
+        return queued
 
     async def requeue_next(self, queued: QueuedOperation) -> None:
         """Put an inspected operation back at the next-consumed end."""
