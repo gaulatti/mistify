@@ -45,8 +45,10 @@ For detailed API documentation, including request/response examples, please see 
 ## Monitoring
 
 Mistify exposes comprehensive Prometheus metrics on the private `/metrics`
-endpoint. Scrapers must send `Authorization: Bearer <token>` using the required
-`METRICS_BEARER_TOKEN` secret; missing or invalid credentials return `401`.
+endpoint when `METRICS_BEARER_TOKEN` is configured. Scrapers must send
+`Authorization: Bearer <token>`; missing or invalid credentials return `401`.
+When the token is unconfigured, `/metrics` returns `404` and the rest of the
+service remains available.
 
 - **Request metrics**: Requests per minute, latency, errors
 - **Processing metrics**: Posts analyzed per minute, batch sizes

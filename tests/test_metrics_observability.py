@@ -31,13 +31,35 @@ def _mistify_samples(payload: str):
     ]
 
 
-def test_metrics_token_is_required_at_startup():
-    with pytest.raises(RuntimeError, match="METRICS_BEARER_TOKEN is required"):
-        metrics.require_metrics_token(None)
+def test_metrics_token_is_optional_and_blank_values_are_disabled():
+    assert metrics.normalize_metrics_token(None) is None
+    assert metrics.normalize_metrics_token("") is None
+    assert metrics.normalize_metrics_token("   ") is None
+    assert (
+        metrics.normalize_metrics_token(" bounded-test-scrape-token ")
+        == "bounded-test-scrape-token"
+    )
+
+
+@pytest.mark.asyncio
+async def test_metrics_endpoint_is_hidden_when_token_is_unconfigured(monkeypatch):
+    monkeypatch.setitem(app_state.config, "METRICS_BEARER_TOKEN", None)
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        missing = await client.get("/metrics")
+        supplied = await client.get(
+            "/metrics", headers={"Authorization": "Bearer arbitrary-token"}
+        )
+
+    assert missing.status_code == 404
+    assert supplied.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_metrics_endpoint_requires_bearer_and_parses_real_exposition(monkeypatch):
+    monkeypatch.setitem(
+        app_state.config, "METRICS_BEARER_TOKEN", "bounded-test-scrape-token"
+    )
     monkeypatch.setattr(app_state.operation_queue, "size", AsyncMock(return_value=4))
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

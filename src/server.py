@@ -109,7 +109,7 @@ app_state.config = {
     "PROCESSING_TRANSLATE_TO_ENGLISH": os.getenv("PROCESSING_TRANSLATE_TO_ENGLISH", "true").lower() in {"1", "true", "yes"},
     "MONITOR_GRPC_CALLBACK_TARGET": os.getenv("MONITOR_GRPC_CALLBACK_TARGET", "localhost:50055"),
     "HTTP_PORT": int(os.getenv("HTTP_PORT", "8000")),
-    "METRICS_BEARER_TOKEN": metrics.require_metrics_token(
+    "METRICS_BEARER_TOKEN": metrics.normalize_metrics_token(
         os.getenv("METRICS_BEARER_TOKEN")
     ),
     "VALKEY_HOST": os.getenv("VALKEY_HOST", "host.docker.internal"),
@@ -261,7 +261,11 @@ async def prometheus_metrics(
     authorization: Annotated[str | None, Header()] = None,
 ):
     """Private Prometheus scrape endpoint protected by a bearer token."""
-    expected = f"Bearer {app_state.config['METRICS_BEARER_TOKEN']}"
+    metrics_token = app_state.config["METRICS_BEARER_TOKEN"]
+    if metrics_token is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    expected = f"Bearer {metrics_token}"
     if not secrets.compare_digest(authorization or "", expected):
         raise HTTPException(
             status_code=401,

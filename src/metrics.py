@@ -410,12 +410,13 @@ def route_label_from_request_scope(scope: dict) -> str:
     return "unmatched"
 
 
-def require_metrics_token(value: Optional[str]) -> str:
-    """Require an explicit secret so metrics can never start unguarded."""
+def normalize_metrics_token(value: Optional[str]) -> Optional[str]:
+    """Normalize the optional credential used to expose private metrics."""
 
-    if not value:
-        raise RuntimeError("METRICS_BEARER_TOKEN is required")
-    return value
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
 
 
 def operation_label(value: str) -> str:
