@@ -171,6 +171,44 @@ weaken or contradict these rules.
 - Do not call a full-stack change complete until the application has been built
   and exercised through the Compose-served browser UI and normal backend path.
 
+## Prometheus observability for managed backends
+
+- Before changing backend behavior, inspect the repository's existing metrics,
+  collectors, instrumentation helpers, private metrics endpoint, and Prometheus
+  scrape boundary. Preserve established names and semantics unless the task
+  explicitly includes a documented metric migration.
+- A managed backend must expose the applicable baseline telemetry for its
+  architecture: service/build information, a runtime/process collector,
+  normalized HTTP or RPC request count/duration/result metrics, dependency and
+  retry signals, queue or job signals, bounded domain metrics, and a private
+  scraper endpoint when the framework supports one. A component that genuinely
+  does not have a listed concern need not fabricate a metric for it.
+- Backend behavior changes must add or update behavior-specific metrics when
+  they affect dependencies, retries, queues or jobs, persistence, delivery,
+  lifecycle state, freshness, or degraded/unavailable state. Instrument both
+  successful and failed transitions so operators can distinguish healthy work,
+  rejection, retry, and failure.
+- Use stable metric names, Prometheus base-unit suffixes, and bounded labels
+  derived from controlled enums or normalized route/result classifications.
+  Document metric meaning and any deliberate rename or semantic migration.
+- Never use unbounded, sensitive, or content-bearing labels. Prohibited labels
+  include user IDs, unbounded tenant IDs, tokens, credentials, URLs, request or
+  response bodies, content text, device identifiers, free-form error strings,
+  and raw external identifiers. Put correlation details in appropriately
+  protected logs, not metric labels.
+- Application repositories own their instrumentation, private exposure,
+  behavior-specific tests, and metric documentation. Prometheus deployment,
+  scrape configuration, storage, dashboards, and alerts belong to the
+  observability infrastructure repository unless the ticket explicitly places
+  those surfaces in scope.
+- Tests must cover success and error transitions and assert bounded label sets.
+  Verification must also exercise and parse the real collector or `/metrics`
+  output; unit assertions that only prove an increment call are insufficient.
+- Update the applicable wiki or in-repository observability documentation with
+  metrics, labels, endpoint/security boundaries, and operational meaning. When
+  an inspected backend change genuinely has no metrics impact, record that
+  conclusion explicitly in the handoff rather than silently omitting telemetry.
+
 ## Configuration ownership and AWS Secrets Manager
 
 - Production backend application configuration must be Secrets Manager-owned.
