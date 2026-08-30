@@ -64,3 +64,4 @@ class QueuedOperation(BaseModel):
     envelope: OperationEnvelope
     queued_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     attempts: int = 0
+    receipts: list[str] = Field(default_factory=list, exclude=True)

@@ -95,4 +95,7 @@ jobs:
               -e MONITOR_GRPC_CALLBACK_TARGET=${{ vars.MONITOR_GRPC_CALLBACK_TARGET }} \
               -v mistify-cache:/home/appuser/.cache \
               -v mistify-models:/home/appuser/.hf_models \
+              --log-driver=json-file \
+              --log-opt max-size=50m \
+              --log-opt max-file=5 \
               ghcr.io/${{ github.repository }}:latest

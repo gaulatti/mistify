@@ -55,8 +55,12 @@ class OperationWorker:
                 if queued is None:
                     continue
 
-                queued = await self._coalesce_analysis(queued)
-                await self.process(queued)
+                try:
+                    queued = await self._coalesce_analysis(queued)
+                    await self.process(queued)
+                except Exception:
+                    await self.queue.requeue_later(queued)
+                    raise
             except asyncio.CancelledError:
                 logger.info("Mistify operation worker cancelled")
                 raise
@@ -97,12 +101,13 @@ class OperationWorker:
                 await self.queue.requeue_next(candidate)
                 break
             items.extend(other_items)
+            queued.receipts.extend(candidate.receipts)
 
         return queued
 
     async def process(self, queued: QueuedOperation) -> None:
         envelope = queued.envelope
-        logger.debug(
+        logger.info(
             "Processing operation %s (%s)",
             envelope.operation_id,
             envelope.operation_type,
@@ -117,10 +122,39 @@ class OperationWorker:
                 envelope.operation_id,
                 exc,
             )
-            await self._deliver_callback_safely(envelope, "failed", error=str(exc))
+            delivered = await self._deliver_callback_safely(
+                envelope,
+                "failed",
+                error=str(exc),
+            )
+            await self._finish_delivery(queued, delivered)
             return
 
-        await self._deliver_callback_safely(envelope, "succeeded", result=result)
+        delivered = await self._deliver_callback_safely(
+            envelope,
+            "succeeded",
+            result=result,
+        )
+        await self._finish_delivery(queued, delivered)
+
+    async def _finish_delivery(
+        self,
+        queued: QueuedOperation,
+        delivered: bool,
+    ) -> None:
+        if delivered:
+            await self.queue.acknowledge(queued)
+            logger.info(
+                "Operation %s callback acknowledged and removed from queue",
+                queued.envelope.operation_id,
+            )
+            return
+
+        await self.queue.requeue_later(queued)
+        logger.error(
+            "Operation %s retained for retry after callback attempts were exhausted",
+            queued.envelope.operation_id,
+        )
 
     async def _run_operation(self, envelope: OperationEnvelope) -> Dict[str, Any]:
         if envelope.operation_type == "analyze_posts":
@@ -277,7 +311,7 @@ class OperationWorker:
         *,
         result: Optional[Dict[str, Any]] = None,
         error: Optional[str] = None,
-    ) -> None:
+    ) -> bool:
         if envelope.grpc_callback:
             await self._deliver_grpc_callback(envelope, status, result, error)
             return
@@ -317,7 +351,7 @@ class OperationWorker:
                     metrics.record_callback(
                         channel, "success", time.perf_counter() - started_at
                     )
-                return
+                return True
             except Exception as exc:
                 if channel != "none":
                     metrics.record_callback(
@@ -339,6 +373,7 @@ class OperationWorker:
                 )
                 if attempt < CALLBACK_MAX_ATTEMPTS:
                     await asyncio.sleep(min(16, 2 ** (attempt - 1)))
+        return False
 
     def _callback_target(self, envelope: OperationEnvelope) -> str:
         if envelope.grpc_callback:

@@ -483,7 +483,17 @@ def record_queue_event(operation: str, outcome: str) -> None:
 
     controlled_outcome = (
         outcome
-        if outcome in {"enqueued", "dequeued", "duplicate", "error"}
+        if outcome
+        in {
+            "enqueued",
+            "claimed",
+            "acknowledged",
+            "requeued",
+            "recovered",
+            "dead_letter",
+            "duplicate",
+            "error",
+        }
         else "error"
     )
     OPERATION_QUEUE_EVENTS_TOTAL.labels(

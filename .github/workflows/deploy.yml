@@ -84,9 +84,6 @@ jobs:
             docker stop mistify || true
             docker rm mistify || true
 
-            # Generate a UUID for awslogs-stream
-            LOG_STREAM_UUID=$(uuidgen)
-
             # Run the new container with GPU support
             docker run -d --name mistify \
               -p ${{ vars.HTTP_PORT }}:${{ vars.HTTP_PORT }} \
@@ -101,9 +98,8 @@ jobs:
               -e MONITOR_GRPC_CALLBACK_TARGET=${{ vars.MONITOR_GRPC_CALLBACK_TARGET }} \
               -v mistify-cache:/home/appuser/.cache \
               -v mistify-models:/home/appuser/.hf_models \
-              --log-driver=awslogs \
-              --log-opt awslogs-region=${{ vars.AWS_REGION }} \
-              --log-opt awslogs-group=${{ vars.LOGS_GROUP }} \
-              --log-opt awslogs-stream="$LOG_STREAM_UUID" \
+              --log-driver=json-file \
+              --log-opt max-size=50m \
+              --log-opt max-file=5 \
               ghcr.io/${{ github.repository }}:latest
             '

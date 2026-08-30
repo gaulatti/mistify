@@ -29,6 +29,18 @@ Mistify exposes a unified FastAPI service with endpoints for each helper:
 
 Mistify also exposes gRPC on port `50000` for async operation submission and callback delivery:
 
+Async operations use a Redis-backed at-least-once delivery contract. A worker
+atomically moves each operation to an in-flight list, and removes it only after
+the configured callback acknowledges the result. Exhausted callback attempts
+return the original operation to the pending queue; interrupted in-flight work
+is recovered when Mistify starts. Consumers must therefore keep callback
+handling idempotent.
+
+Production stdout uses Docker's rotating local `json-file` driver. Operators
+can follow enqueue, processing, callback retry, acknowledgment, requeue, and
+startup recovery events with `docker logs -f mistify`; payload bodies and
+credentials are not logged.
+
 **Mistify operations:**
 - `mistify.operations.MistifyOperations/AnalyzePosts`
 - `mistify.operations.MistifyOperations/DetectLanguage`

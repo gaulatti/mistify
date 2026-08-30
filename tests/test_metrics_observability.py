@@ -112,11 +112,17 @@ async def test_grpc_and_worker_success_failure_labels_are_bounded(monkeypatch):
     with pytest.raises(RuntimeError, match="private queue error"):
         await failed_service.DetectLanguage(request, None)
 
-    worker = OperationWorker(SimpleNamespace(), SimpleNamespace())
+    worker = OperationWorker(
+        SimpleNamespace(
+            acknowledge=AsyncMock(),
+            requeue_later=AsyncMock(),
+        ),
+        SimpleNamespace(),
+    )
     worker._run_operation = AsyncMock(
         side_effect=[{"ok": True}, RuntimeError("private worker error")]
     )
-    worker._deliver_callback_safely = AsyncMock()
+    worker._deliver_callback_safely = AsyncMock(return_value=True)
     await worker.process(
         QueuedOperation(
             envelope=OperationEnvelope(operation_type="detect_language", payload={})

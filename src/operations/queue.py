@@ -10,6 +10,8 @@ from src.operations.models import OperationEnvelope, QueuedOperation
 logger = logging.getLogger("mistify")
 
 QUEUE_NAME = "mistify:operations"
+PROCESSING_QUEUE_NAME = "mistify:operations:processing"
+DEAD_LETTER_QUEUE_NAME = "mistify:operations:dead-letter"
 IDEMPOTENCY_PREFIX = "mistify:operation:idempotency"
 IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60
 
@@ -20,6 +22,8 @@ class OperationQueue:
     def __init__(self, redis_client: Redis) -> None:
         self.redis = redis_client
         self.queue_name = QUEUE_NAME
+        self.processing_queue_name = PROCESSING_QUEUE_NAME
+        self.dead_letter_queue_name = DEAD_LETTER_QUEUE_NAME
 
     async def enqueue(self, envelope: OperationEnvelope) -> bool:
         queued = QueuedOperation(envelope=envelope)
@@ -159,29 +163,92 @@ class OperationQueue:
         return int(response) == 1
 
     async def dequeue(self, timeout_seconds: int = 5) -> Optional[QueuedOperation]:
-        result = await self.redis.brpop(self.queue_name, timeout=timeout_seconds)
-        if result is None:
+        raw = await self.redis.brpoplpush(
+            self.queue_name,
+            self.processing_queue_name,
+            timeout=timeout_seconds,
+        )
+        if raw is None:
             return None
-
-        _, raw = result
-        queued = self._parse(raw)
+        queued = await self._parse_claimed(raw)
         if queued is not None:
-            metrics.record_queue_event(queued.envelope.operation_type, "dequeued")
+            metrics.record_queue_event(queued.envelope.operation_type, "claimed")
         return queued
 
     async def dequeue_nowait(self) -> Optional[QueuedOperation]:
         """Pop the next operation without blocking."""
-        raw = await self.redis.rpop(self.queue_name)
+        raw = await self.redis.rpoplpush(
+            self.queue_name,
+            self.processing_queue_name,
+        )
         if raw is None:
             return None
-        queued = self._parse(raw)
+        queued = await self._parse_claimed(raw)
         if queued is not None:
-            metrics.record_queue_event(queued.envelope.operation_type, "dequeued")
+            metrics.record_queue_event(queued.envelope.operation_type, "claimed")
         return queued
 
     async def requeue_next(self, queued: QueuedOperation) -> None:
         """Put an inspected operation back at the next-consumed end."""
-        await self.redis.rpush(self.queue_name, queued.model_dump_json())
+        await self._release(queued, next_consumed=True)
+
+    async def requeue_later(self, queued: QueuedOperation) -> None:
+        """Return failed delivery work behind operations that have not run yet."""
+        await self._release(queued, next_consumed=False)
+        metrics.record_queue_event(queued.envelope.operation_type, "requeued")
+
+    async def acknowledge(self, queued: QueuedOperation) -> None:
+        """Remove successfully completed claims from the processing list."""
+        receipts = queued.receipts or [queued.model_dump_json()]
+        pipe = self.redis.pipeline(transaction=True)
+        for receipt in receipts:
+            pipe.lrem(self.processing_queue_name, 1, receipt)
+        await pipe.execute()
+        metrics.record_queue_event(queued.envelope.operation_type, "acknowledged")
+
+    async def recover_inflight(self) -> int:
+        """Return claims left by an interrupted worker to the durable queue."""
+        recovered = 0
+        while True:
+            raw = await self.redis.rpoplpush(
+                self.processing_queue_name,
+                self.queue_name,
+            )
+            if raw is None:
+                break
+            recovered += 1
+        if recovered:
+            metrics.record_queue_event("unknown", "recovered")
+        return recovered
+
+    async def _release(
+        self,
+        queued: QueuedOperation,
+        *,
+        next_consumed: bool,
+    ) -> None:
+        receipts = queued.receipts or [queued.model_dump_json()]
+        pipe = self.redis.pipeline(transaction=True)
+        for receipt in receipts:
+            pipe.lrem(self.processing_queue_name, 1, receipt)
+            if next_consumed:
+                pipe.rpush(self.queue_name, receipt)
+            else:
+                pipe.lpush(self.queue_name, receipt)
+        await pipe.execute()
+
+    async def _parse_claimed(self, raw: str) -> Optional[QueuedOperation]:
+        queued = self._parse(raw)
+        if queued is not None:
+            queued.receipts = [raw]
+            return queued
+
+        pipe = self.redis.pipeline(transaction=True)
+        pipe.lrem(self.processing_queue_name, 1, raw)
+        pipe.lpush(self.dead_letter_queue_name, raw)
+        await pipe.execute()
+        metrics.record_queue_event("unknown", "dead_letter")
+        return None
 
     @staticmethod
     def _parse(raw: str) -> Optional[QueuedOperation]:
@@ -193,4 +260,8 @@ class OperationQueue:
             return None
 
     async def size(self) -> int:
-        return int(await self.redis.llen(self.queue_name))
+        pipe = self.redis.pipeline(transaction=False)
+        pipe.llen(self.queue_name)
+        pipe.llen(self.processing_queue_name)
+        pending, processing = await pipe.execute()
+        return int(pending) + int(processing)

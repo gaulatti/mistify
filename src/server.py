@@ -302,6 +302,10 @@ def root():
 
 
 async def start_processing_loop():
+    recovered = await app_state.operation_queue.recover_inflight()
+    if recovered:
+        logger.warning("Recovered %d interrupted Mistify operation(s)", recovered)
+
     if app_state.grpc_server is None:
         app_state.grpc_server = await start_grpc_server(
             app_state.operation_queue,

@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -67,9 +67,56 @@ async def test_callback_delivery_retries_temporary_failure(monkeypatch):
     monkeypatch.setattr("src.operations.worker.asyncio.sleep", AsyncMock())
     envelope = OperationEnvelope(operation_type="analyze_posts", payload={})
 
-    await worker._deliver_callback_safely(envelope, "succeeded", result={})
+    delivered = await worker._deliver_callback_safely(
+        envelope,
+        "succeeded",
+        result={},
+    )
 
+    assert delivered is True
     assert worker._deliver_callback.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_callback_exhaustion_keeps_operation_for_retry(monkeypatch):
+    queue = SimpleNamespace(
+        acknowledge=AsyncMock(),
+        requeue_later=AsyncMock(),
+    )
+    worker = OperationWorker(queue, SimpleNamespace())
+    worker._run_operation = AsyncMock(return_value={"items": []})
+    worker._deliver_callback = AsyncMock(side_effect=RuntimeError("monitor down"))
+    monkeypatch.setattr("src.operations.worker.asyncio.sleep", AsyncMock())
+    queued = QueuedOperation(
+        envelope=OperationEnvelope(operation_type="analyze_posts", payload={}),
+        receipts=["durable-receipt"],
+    )
+
+    await worker.process(queued)
+
+    assert worker._deliver_callback.await_count == 6
+    queue.requeue_later.assert_awaited_once_with(queued)
+    queue.acknowledge.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_successful_callback_acknowledges_operation():
+    queue = SimpleNamespace(
+        acknowledge=AsyncMock(),
+        requeue_later=AsyncMock(),
+    )
+    worker = OperationWorker(queue, SimpleNamespace())
+    worker._run_operation = AsyncMock(return_value={"items": []})
+    worker._deliver_callback = AsyncMock(return_value=None)
+    queued = QueuedOperation(
+        envelope=OperationEnvelope(operation_type="analyze_posts", payload={}),
+        receipts=["durable-receipt"],
+    )
+
+    await worker.process(queued)
+
+    queue.acknowledge.assert_awaited_once_with(queued)
+    queue.requeue_later.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -79,12 +126,12 @@ async def test_worker_coalesces_compatible_analysis_operations(monkeypatch):
         operation_type="analyze_posts",
         payload={"items": [{"post": {"id": "one"}}]},
         grpc_callback=callback,
-    ))
+    ), receipts=["first"])
     second = QueuedOperation(envelope=OperationEnvelope(
         operation_type="analyze_posts",
         payload={"items": [{"post": {"id": "two"}}]},
         grpc_callback=callback,
-    ))
+    ), receipts=["second"])
     queue = SimpleNamespace(
         dequeue_nowait=AsyncMock(side_effect=[second, None]),
         requeue_next=AsyncMock(),
@@ -97,6 +144,7 @@ async def test_worker_coalesces_compatible_analysis_operations(monkeypatch):
         "one",
         "two",
     ]
+    assert combined.receipts == ["first", "second"]
     queue.requeue_next.assert_not_awaited()
 
 
@@ -124,3 +172,41 @@ async def test_youtube_clustering_uses_priority_end_of_queue():
 
     assert await queue.enqueue(envelope) is True
     redis.rpush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_queue_claims_atomically_and_acknowledges_after_delivery():
+    raw = QueuedOperation(
+        envelope=OperationEnvelope(operation_type="analyze_posts", payload={})
+    ).model_dump_json()
+    pipe = MagicMock()
+    pipe.execute = AsyncMock(return_value=[1])
+    redis = SimpleNamespace(
+        brpoplpush=AsyncMock(return_value=raw),
+        pipeline=MagicMock(return_value=pipe),
+    )
+    queue = OperationQueue(redis)
+
+    claimed = await queue.dequeue(timeout_seconds=1)
+    assert claimed is not None
+    assert claimed.receipts == [raw]
+    redis.brpoplpush.assert_awaited_once_with(
+        queue.queue_name,
+        queue.processing_queue_name,
+        timeout=1,
+    )
+
+    await queue.acknowledge(claimed)
+    pipe.lrem.assert_called_once_with(queue.processing_queue_name, 1, raw)
+    pipe.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_recover_inflight_returns_every_claim_to_pending_queue():
+    redis = SimpleNamespace(
+        rpoplpush=AsyncMock(side_effect=["one", "two", None]),
+    )
+    queue = OperationQueue(redis)
+
+    assert await queue.recover_inflight() == 2
+    assert redis.rpoplpush.await_count == 3

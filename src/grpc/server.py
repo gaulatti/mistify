@@ -57,6 +57,12 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
         metrics.record_queue_event(
             "analyze_posts", "enqueued" if queued else "duplicate"
         )
+        logger.info(
+            "Operation %s enqueue %s (type=analyze_posts, items=%d)",
+            envelope.operation_id,
+            "accepted" if queued else "deduplicated",
+            len(items),
+        )
         return operations_pb2.EnqueueAnalysisResponse(
             operation_id=envelope.operation_id,
             queued=queued,
@@ -163,6 +169,12 @@ class MistifyOperationsService(operations_pb2_grpc.MistifyOperationsServicer):
             raise
         metrics.record_queue_event(
             operation_type, "enqueued" if queued else "duplicate"
+        )
+        logger.info(
+            "Operation %s enqueue %s (type=%s)",
+            envelope.operation_id,
+            "accepted" if queued else "deduplicated",
+            operation_type,
         )
         return operations_pb2.EnqueueAnalysisResponse(
             operation_id=envelope.operation_id,
