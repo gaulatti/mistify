@@ -301,7 +301,8 @@ if [[ ! -x "${update_source}/scripts/sync" ]]; then
   exit 1
 fi
 
-"${update_source}/scripts/sync" --write --repository "${TARGET_REPOSITORY}"
+AI_AGENTIC_CODING_COMMIT="${central_commit}" \
+  "${update_source}/scripts/sync" --write --commit --repository "${TARGET_REPOSITORY}"
 "${update_source}/scripts/sync" --check --repository "${TARGET_REPOSITORY}"
 ensure_wiki_checkout "${TARGET_REPOSITORY}"
 

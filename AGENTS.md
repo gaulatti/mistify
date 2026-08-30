@@ -13,7 +13,8 @@ weaken or contradict these rules.
   root.
 - The updater must fetch the central `agentic-coding` standard and, when a newer
   version exists, refresh only the managed rules and centrally owned skills in
-  the current repository. For public repositories it must also verify the
+  the current repository and create a narrowly scoped Conventional Commit for
+  those managed files. For public repositories it must also verify the
   repository wiki checkout at `./wiki`, clone the repository's wiki there when
   the remote wiki exists, and validate that an existing checkout points to the
   expected wiki remote. Reread the updated root `AGENTS.md`, any applicable
@@ -23,8 +24,13 @@ weaken or contradict these rules.
   cannot be verified or the update fails, stop before other repository mutations
   and report the exact failure.
 - The freshness update must preserve repository-local instructions, local-only
-  skills, wiki changes, and unrelated worktree changes. It must not commit,
-  push, deploy, reset, rebase, or discard changes.
+  skills, wiki changes, and unrelated worktree changes. It must not include
+  product files in its metadata commit, and it must not push, deploy, reset,
+  rebase, or discard changes.
+- Do not continue product work with dirty managed metadata. If the updater
+  cannot commit its `AGENTS.md`, managed-skills manifest, and centrally owned
+  skills cleanly, stop and report the failure instead of treating those files
+  as unrelated product work or repeatedly narrating their presence.
 
 ## Repository wiki and documentation
 
