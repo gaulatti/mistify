@@ -41,9 +41,21 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from src.helpers.models import initialize_models
 from src.endpoints import (
-    language, classification, translation, embedding, clustering, analysis
+    analysis,
+    classification,
+    clustering,
+    embedding,
+    language,
+    media,
+    translation,
 )
 from src.grpc.server import start_grpc_server
+from src.operations.media import (
+    MediaOperationRunner,
+    MediaOperationStore,
+    UnavailableMediaBackend,
+)
+from src.operations.media_probe import LocalMediaProbe
 from src.operations.queue import OperationQueue
 from src.operations.worker import OperationWorker
 from src import metrics
@@ -83,7 +95,10 @@ async def lifespan(_app: FastAPI):
 # ---- FastAPI App ---------------------------------------------------------------
 app = FastAPI(
     title="Mistify",
-    description="Language detection, content classification, translation, sentence embeddings, and entity-aware clustering",
+    description=(
+        "Language detection, content classification, translation, sentence "
+        "embeddings, entity-aware clustering, and durable recorded-media workflows"
+    ),
     version=VERSION,
     lifespan=lifespan,
 )
@@ -111,6 +126,14 @@ app_state.config = {
     "HTTP_PORT": int(os.getenv("HTTP_PORT", "8000")),
     "METRICS_BEARER_TOKEN": metrics.normalize_metrics_token(
         os.getenv("METRICS_BEARER_TOKEN")
+    ),
+    "MEDIA_OPERATION_BEARER_TOKEN": metrics.normalize_metrics_token(
+        os.getenv("MEDIA_OPERATION_BEARER_TOKEN")
+    ),
+    "MEDIA_INPUT_ROOT": pathlib.Path(os.getenv("MEDIA_INPUT_ROOT", "/media")),
+    "MEDIA_MAX_BYTES": int(os.getenv("MEDIA_MAX_BYTES", str(512 * 1024 * 1024))),
+    "MEDIA_MAX_DURATION_SECONDS": int(
+        os.getenv("MEDIA_MAX_DURATION_SECONDS", str(4 * 60 * 60))
     ),
     "VALKEY_HOST": os.getenv("VALKEY_HOST", "host.docker.internal"),
     "VALKEY_PORT": int(os.getenv("VALKEY_PORT", "6379")),
@@ -178,6 +201,17 @@ def _create_redis_client(config):
 
 app_state.redis_client = _create_redis_client(app_state.config)
 app_state.operation_queue = OperationQueue(app_state.redis_client)
+app_state.media_operation_store = MediaOperationStore(app_state.redis_client)
+app_state.media_probe = LocalMediaProbe(
+    root=app_state.config["MEDIA_INPUT_ROOT"],
+    max_bytes=app_state.config["MEDIA_MAX_BYTES"],
+    max_duration_seconds=app_state.config["MEDIA_MAX_DURATION_SECONDS"],
+)
+app_state.media_backend = UnavailableMediaBackend()
+app_state.media_operation_runner = MediaOperationRunner(
+    app_state.media_operation_store,
+    app_state.media_backend,
+)
 app_state.operation_worker = OperationWorker(app_state.operation_queue, app_state)
 app_state.operation_worker_task = None
 app_state.grpc_server = None
@@ -232,6 +266,7 @@ app.include_router(classification.router)
 app.include_router(translation.router)
 app.include_router(embedding.router)
 app.include_router(clustering.router)
+app.include_router(media.router)
 
 
 # ---- System Endpoints ----------------------------------------------------------
@@ -247,6 +282,7 @@ def health():
             "translator_loaded": app_state.translator is not None,
             "embedder_loaded": app_state.embedder is not None,
             "nlp_loaded": app_state.nlp is not None,
+            "media_processor_available": app_state.media_operation_runner.available,
         },
         "system": {
             "threads": process.num_threads(),
@@ -284,9 +320,15 @@ async def prometheus_metrics(
 def root():
     """Root endpoint with API information"""
     return {
-        "service": "Unified Text Analysis API",
+        "service": "Mistify AI Operations API",
         "version": VERSION,
-        "capabilities": ["language_detection", "content_classification", "translation", "text_clustering"],
+        "capabilities": [
+            "language_detection",
+            "content_classification",
+            "translation",
+            "text_clustering",
+            "durable_media_operations",
+        ],
         "operation_queue": {
             "queue_name": app_state.operation_queue.queue_name,
         },
@@ -296,6 +338,7 @@ def root():
             "translation": "/translate",
             "embeddings": "/embed",
             "text_clustering": "/cluster",
+            "media_operations": "/media/operations",
             "health": "/health"
         }
     }

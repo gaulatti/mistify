@@ -28,6 +28,7 @@ from src.models import (
     UnifiedAnalysisRequest,
 )
 from src.operations.models import OperationEnvelope, QueuedOperation
+from src.operations.media_models import MediaOperationState
 from src.operations.queue import OperationQueue
 
 logger = logging.getLogger("mistify")
@@ -113,6 +114,10 @@ class OperationWorker:
             envelope.operation_type,
         )
 
+        if envelope.operation_type == "process_media":
+            await self._process_media(queued)
+            return
+
         try:
             with metrics.record_job(envelope.operation_type):
                 result = await self._run_operation(envelope)
@@ -136,6 +141,37 @@ class OperationWorker:
             result=result,
         )
         await self._finish_delivery(queued, delivered)
+
+    async def _process_media(self, queued: QueuedOperation) -> None:
+        envelope = queued.envelope
+        with metrics.record_job(envelope.operation_type) as job:
+            outcome = await self.app_state.media_operation_runner.run(
+                envelope.operation_id
+            )
+            if outcome.retry:
+                job["outcome"] = "retry"
+                metrics.OPERATION_RETRIES_TOTAL.labels(
+                    operation=metrics.operation_label(envelope.operation_type)
+                ).inc()
+                await self.queue.requeue_later(queued)
+                return
+
+            if outcome.state == MediaOperationState.FAILED:
+                job["outcome"] = "error"
+                status = "failed"
+            elif outcome.state == MediaOperationState.CANCELED:
+                job["outcome"] = "canceled"
+                status = "canceled"
+            else:
+                status = "succeeded"
+
+            delivered = await self._deliver_callback_safely(
+                envelope,
+                status,
+                result=outcome.result,
+                error=outcome.error_code,
+            )
+            await self._finish_delivery(queued, delivered)
 
     async def _finish_delivery(
         self,

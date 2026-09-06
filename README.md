@@ -11,6 +11,8 @@ For detailed documentation, please visit the [Mistify Wiki](https://github.com/g
 - **Translation**: Seamless M4T v2, Helsinki-NLP fallback, 100+ language pairs
 - **Text Clustering**: Entity-aware, topic-gated, alias discovery, graph-based
 - **Unified Analysis**: Combine detection, translation, and classification in one call
+- **Durable Recorded Media Operations**: Authenticated, resumable transcription,
+  diarization, and source-grounded summary orchestration
 - **Modular API**: Use endpoints independently or compose for advanced workflows
 
 ## API Endpoints
@@ -24,6 +26,7 @@ Mistify exposes a unified FastAPI service with endpoints for each helper:
 - `/embed` — Generate sentence embeddings
 - `/health` — Health check
 - `/metrics` — private bearer-authenticated Prometheus metrics for monitoring
+- `/media/operations` — private durable recorded-media submission and status API
 
 > **Note:** `/analyze` is not exposed as an HTTP endpoint. Use the gRPC `AnalyzePosts` method for unified multi-step analysis.
 
@@ -35,6 +38,12 @@ the configured callback acknowledges the result. Exhausted callback attempts
 return the original operation to the pending queue; interrupted in-flight work
 is recovered when Mistify starts. Consumers must therefore keep callback
 handling idempotent.
+
+Recorded-media operations persist their lifecycle and each processing stage in
+Redis. A restarted worker skips successful stages, retries only the failed
+stage, and reuses terminal results when callback delivery is replayed. See
+[MEDIA_OPERATIONS.md](MEDIA_OPERATIONS.md) for the request, output, retention,
+and processor-adapter contracts.
 
 Production stdout uses Docker's rotating local `json-file` driver. Operators
 can follow enqueue, processing, callback retry, acknowledgment, requeue, and
@@ -67,7 +76,8 @@ service remains available.
 - **GPU metrics**: Memory usage, utilization, anomaly detection
 - **Failure tracking**: Timeouts, errors, retries by operation
 - **Async workflow metrics**: gRPC submissions, Redis queue depth/events,
-  worker outcomes, callback dependency attempts, and retries
+  worker outcomes, callback dependency attempts, retries, media queue age,
+  and bounded media stage/outcome measurements
 
 For detailed metrics documentation and example queries, see [METRICS.md](METRICS.md).
 
@@ -194,6 +204,15 @@ Configure the service using the following environment variables:
 - `METRICS_BEARER_TOKEN`: Required secret for the private `/metrics` endpoint.
   Production deployments source it from the GitHub Actions secret with the
   same name; the central `gaulatti/prometheus` scraper must hold that token.
+- `MEDIA_OPERATION_BEARER_TOKEN`: Required secret for `/media/operations`.
+  When blank or absent, all media-operation routes are hidden with `404`. It is
+  a local/test override only. This change does not enable production; that
+  requires a separate Secrets Manager-owned configuration integration rather
+  than a workflow environment secret.
+- `MEDIA_INPUT_ROOT`: Root beneath which immutable `file://` media sources may
+  be read (default: `/media`). Sources outside this root are rejected.
+- `MEDIA_MAX_BYTES`: Maximum accepted media size (default: `536870912`).
+- `MEDIA_MAX_DURATION_SECONDS`: Maximum accepted duration (default: `14400`).
 - `MONITOR_GRPC_CALLBACK_TARGET`: gRPC target (host:port) where Mistify sends `AnalyzePosts` results back to monitor (default: `localhost:50055`).
 - `DOCKER_PLATFORM`: Optional Docker platform override for Compose builds/runs (default: `linux/amd64`). Useful on Apple Silicon when base images are amd64-only.
 - `LOAD_MODELS_ON_STARTUP`: Set to `false` to start the API without eagerly loading models (fast boot; model-backed endpoints can return `503` until models are loaded by your runtime strategy).
