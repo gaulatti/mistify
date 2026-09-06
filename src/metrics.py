@@ -36,6 +36,7 @@ OPERATIONS = frozenset(
         "embed_text",
         "generate_scout_queries",
         "language_detect",
+        "process_media",
         "rank_scout_candidates",
         "translate",
         "translate_text",
@@ -281,6 +282,31 @@ CALLBACK_REQUEST_DURATION_SECONDS = Histogram(
     buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30),
 )
 
+MEDIA_OPERATION_PHASE_TOTAL = Counter(
+    "mistify_media_operation_phase_total",
+    "Total durable media-processing stage attempts",
+    labelnames=("phase", "outcome"),
+)
+
+MEDIA_OPERATION_PHASE_DURATION_SECONDS = Histogram(
+    "mistify_media_operation_phase_duration_seconds",
+    "Duration of durable media-processing stage attempts in seconds",
+    labelnames=("phase", "outcome"),
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 40, 80, 160),
+)
+
+MEDIA_OPERATION_QUEUE_AGE_SECONDS = Histogram(
+    "mistify_media_operation_queue_age_seconds",
+    "Age of a durable media operation when a worker begins an attempt",
+    buckets=(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900, 3600),
+)
+
+MEDIA_OPERATION_OUTCOMES_TOTAL = Counter(
+    "mistify_media_operation_outcomes_total",
+    "Durable media-operation terminal and retry outcomes",
+    labelnames=("outcome",),
+)
+
 # ---- System gauges (updated at scrape-time) ----------------------------------
 
 PROCESS_RSS_BYTES = Gauge(
@@ -388,6 +414,13 @@ def update_runtime_metrics(app_state: Optional[object] = None) -> None:
         ):
             available = getattr(app_state, attribute, None) is not None
             MODEL_AVAILABLE.labels(model=metric_name).set(1.0 if available else 0.0)
+        media_runner = getattr(app_state, "media_operation_runner", None)
+        media_available = bool(
+            media_runner is not None and getattr(media_runner, "available", False)
+        )
+        MODEL_AVAILABLE.labels(model="media_processor").set(
+            1.0 if media_available else 0.0
+        )
 
 
 def route_label_from_request_scope(scope: dict) -> str:
@@ -464,14 +497,17 @@ def record_job(operation: str):
 
     operation_name = operation_label(operation)
     start = time.perf_counter()
-    outcome = "success"
+    state = {"outcome": "success"}
     try:
-        yield
+        yield state
     except Exception:
-        outcome = "error"
+        state["outcome"] = "error"
         raise
     finally:
         duration = time.perf_counter() - start
+        outcome = state["outcome"]
+        if outcome not in {"success", "error", "retry", "canceled"}:
+            outcome = "error"
         OPERATION_JOBS_TOTAL.labels(operation=operation_name, outcome=outcome).inc()
         OPERATION_JOB_DURATION_SECONDS.labels(
             operation=operation_name, outcome=outcome
@@ -518,6 +554,45 @@ def record_callback(channel: str, outcome: str, duration_seconds: float) -> None
     CALLBACK_REQUEST_DURATION_SECONDS.labels(
         channel=channel_label, outcome=outcome_label
     ).observe(duration_seconds)
+
+
+@contextmanager
+def record_media_phase(phase: str):
+    """Record a bounded media stage result without source or content labels."""
+
+    phase_label = (
+        phase
+        if phase in {"probe", "transcription", "diarization", "summary"}
+        else "unknown"
+    )
+    started_at = time.perf_counter()
+    outcome = "success"
+    try:
+        yield
+    except Exception:
+        outcome = "error"
+        raise
+    finally:
+        duration = time.perf_counter() - started_at
+        MEDIA_OPERATION_PHASE_TOTAL.labels(
+            phase=phase_label, outcome=outcome
+        ).inc()
+        MEDIA_OPERATION_PHASE_DURATION_SECONDS.labels(
+            phase=phase_label, outcome=outcome
+        ).observe(duration)
+
+
+def record_media_queue_age(age_seconds: float) -> None:
+    MEDIA_OPERATION_QUEUE_AGE_SECONDS.observe(max(0.0, age_seconds))
+
+
+def record_media_outcome(outcome: str) -> None:
+    outcome_label = (
+        outcome
+        if outcome in {"succeeded", "failed", "canceled", "retry"}
+        else "failed"
+    )
+    MEDIA_OPERATION_OUTCOMES_TOTAL.labels(outcome=outcome_label).inc()
 
 
 @contextmanager

@@ -25,6 +25,7 @@ The Mistify service exposes comprehensive metrics for monitoring:
 - System resource utilization
 - Failures and timeouts
 - gRPC submissions, queue state, worker outcomes, callback dependencies, and retries
+- Durable media stage outcomes/durations, queue age, terminal outcomes, and retries
 
 ## Metric Categories
 
@@ -68,6 +69,15 @@ These metrics track all HTTP requests to the service:
 - **`mistify_callback_requests_total`** / **`mistify_callback_request_duration_seconds`**
   - Labels: callback channel (`http` or `grpc`) and bounded outcome
   - Callback targets, headers, payloads, and error strings are never labels
+- **`mistify_media_operation_phase_total`** / **`mistify_media_operation_phase_duration_seconds`**
+  - Labels: bounded `phase` (`probe`, `transcription`, `diarization`, `summary`)
+    and `outcome` (`success`, `error`)
+- **`mistify_media_operation_queue_age_seconds`**
+  - Age of a durable media operation when each worker attempt begins
+- **`mistify_media_operation_outcomes_total`**
+  - Label: bounded `outcome` (`succeeded`, `failed`, `canceled`, `retry`)
+  - Source URIs, checksums, transcript text, model errors, and operation IDs are
+    deliberately excluded from every metric label
 
 ### 3. Posts/Items Processing Metrics
 
@@ -105,7 +115,10 @@ These metrics track individual model operations:
 - **`mistify_model_available`** (Gauge)
   - Description: Whether a model/component is available (1) or not (0)
   - Labels: `model`
-  - Models: `fasttext`, `classifier`, `translator`, `embedder`, `nlp`
+  - Models: `fasttext`, `classifier`, `translator`, `embedder`, `nlp`,
+    `media_processor`
+  - `media_processor` remains `0` for the fail-closed adapter and becomes `1`
+    only when a configured adapter reports itself available
   - Use case: Monitor model availability
 
 ### 5. Failure and Retry Metrics
