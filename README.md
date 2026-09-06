@@ -95,6 +95,51 @@ For detailed metrics documentation and example queries, see [METRICS.md](METRICS
 
     The required models will be downloaded automatically on first use. For a full offline installation, please refer to the [documentation on the wiki](https://github.com/gaulatti/mistify/wiki).
 
+### Testing
+
+The suite under `tests/` is fixture-driven: it uses fakes for every model and
+never contacts a network service, a model hub, or production.
+
+```bash
+# The required suite — the same command CI runs as a deployment gate.
+uv run pytest -m "not slow"
+
+# Everything, including model-dependent tests.
+uv run pytest
+
+# Only the model-dependent tests (downloads weights; not run in CI).
+uv run pytest -m slow
+```
+
+Mark any test that needs real model weights or takes a long time with
+`@pytest.mark.slow`. Unknown markers are rejected (`--strict-markers`), so a
+typo fails rather than silently running the test in the required gate. There
+are currently no `slow` tests; the CI job prints the live list in its run
+summary so opted-out tests stay visible.
+
+`test_translation.py` at the repository root is a hand-run diagnostic script
+with no assertions. It is deliberately outside `testpaths` and is not part of
+any suite; run it directly with `uv run python test_translation.py`.
+
+#### CI and the deployment gate
+
+`.github/workflows/tests.yml` runs the required suite on every pull request and
+is called by both deployment workflows, so **a deployment cannot proceed after a
+required test failure**:
+
+| Workflow | Gate |
+| --- | --- |
+| `tests.yml` | `pull_request`, `workflow_call`, `workflow_dispatch` |
+| `deploy.yml` | `build-and-push` and `deploy` both `need` `required-tests` |
+| `build-base.yml` | `build-and-push-base` `needs` `required-tests`, and the app build and deploy chain from it |
+
+The job installs Python 3.10 and the locked dependencies with
+`uv sync --frozen`, references **no repository secrets**, and sets
+`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, and `LOAD_MODELS_ON_STARTUP=false`
+so an accidental model download fails loudly instead of quietly slowing the
+gate. Only the uv package cache is cached, keyed on `uv.lock`; model weights
+(`~/.cache/huggingface`) are never cached.
+
 ### Running with Docker
 
 The easiest way to run Mistify is with Docker. The Docker build pre-downloads all models, ensuring offline operation.

@@ -1,0 +1,71 @@
+name: Tests
+
+# Runs on every pull request, and is called by the deployment workflows so that
+# no deployment can proceed without it. It deliberately has no `push` trigger:
+# on `main` it runs as a called job inside `deploy.yml` / `build-base.yml`,
+# which keeps it a real gate instead of a parallel, ignorable run.
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  required-tests:
+    name: Required tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The required suite is fixture-driven. Loading or downloading a model is
+      # a failure, not a slow path: these make any attempt fail loudly.
+      LOAD_MODELS_ON_STARTUP: "false"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      UV_NO_PROGRESS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.10.9"
+          # Caches only the uv package cache, keyed on the lockfile. Model
+          # weights live under ~/.cache/huggingface and are never cached here.
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python 3.10
+        run: uv python install 3.10
+
+      - name: Install dependencies from the lockfile
+        run: uv sync --frozen --python 3.10
+
+      - name: Run required tests
+        run: uv run --frozen --python 3.10 pytest -m "not slow" -q
+
+      - name: Report opted-out slow tests
+        if: always()
+        run: |
+          {
+            echo "### Slow / model-dependent tests"
+            echo
+            echo "Excluded from this required gate. Run them with:"
+            echo
+            echo '```'
+            echo 'uv run pytest -m slow'
+            echo '```'
+            echo
+            echo "Currently marked \`slow\`:"
+            echo
+            echo '```'
+            uv run --frozen --python 3.10 pytest -m slow --collect-only -q 2>&1 | tail -n 20 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
