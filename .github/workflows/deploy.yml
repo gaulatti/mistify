@@ -8,6 +8,10 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Deployment cannot proceed unless the required test suite passes first.
+  required-tests:
+    uses: ./.github/workflows/tests.yml
+
   check-base-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -33,7 +37,7 @@ jobs:
 
   build-and-push:
     runs-on: ubuntu-latest
-    needs: check-base-changes
+    needs: [required-tests, check-base-changes]
     if: needs.check-base-changes.outputs.base-changed == 'false'
     steps:
       - name: Checkout code
@@ -64,7 +68,7 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
-    needs: [check-base-changes, build-and-push]
+    needs: [required-tests, check-base-changes, build-and-push]
     if: needs.check-base-changes.outputs.base-changed == 'false'
     steps:
       - name: Deploy to on-premises host

@@ -38,3 +38,15 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "grpcio-tools>=1.60.0",
 ]
+
+[tool.pytest.ini_options]
+# Only `tests/` is the required suite. `test_translation.py` at the repository
+# root is a hand-run diagnostic script with no assertions and is deliberately
+# not collected.
+testpaths = ["tests"]
+addopts = "--strict-markers"
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "slow: model-dependent or long-running. Excluded from the required CI gate; run with `uv run pytest -m slow`.",
+]
