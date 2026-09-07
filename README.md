@@ -50,6 +50,11 @@ can follow enqueue, processing, callback retry, acknowledgment, requeue, and
 startup recovery events with `docker logs -f mistify`; payload bodies and
 credentials are not logged.
 
+The retained CDK stack intentionally owns no CloudWatch Logs resources or
+application log-writer grants. Deploying that stack removes the legacy
+`/services/mistify` group; rollback and verification steps are documented in
+[`infrastructure/README.md`](infrastructure/README.md).
+
 **Mistify operations:**
 - `mistify.operations.MistifyOperations/AnalyzePosts`
 - `mistify.operations.MistifyOperations/DetectLanguage`
