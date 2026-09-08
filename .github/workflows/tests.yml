@@ -69,3 +69,33 @@ jobs:
             uv run --frozen --python 3.10 pytest -m slow --collect-only -q 2>&1 | tail -n 20 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  infrastructure-tests:
+    name: Infrastructure build, test, and synth
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: infrastructure
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: infrastructure/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Build infrastructure
+        run: npm run build
+
+      - name: Test infrastructure
+        run: npm test -- --runInBand
+
+      - name: Synthesize infrastructure
+        run: npm run cdk:synth

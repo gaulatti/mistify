@@ -1,32 +1,16 @@
 import * as cdk from 'aws-cdk-lib';
-import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 
 /**
- * Represents the MistifyStack, an AWS CDK stack that provisions infrastructure resources.
+ * Compatibility stack retained so the next normal CDK deployment removes the
+ * former `/services/mistify` CloudWatch log group from the live stack.
  *
- * This stack creates a CloudWatch Log Group named `/services/monitor` with a retention period of one week.
- * The log group is configured to be destroyed upon stack deletion.
- *
- * @remarks
- * - The log group is intended for monitoring service logs.
- * - Uses AWS CDK constructs and removal policies.
- *
- * @param scope - The parent construct.
- * @param id - The unique identifier for this stack.
- * @param props - Optional stack properties.
+ * Mistify application logs are intentionally host-local and bounded by the
+ * Docker logging options in both deployment workflows. This stack must not
+ * provision CloudWatch Logs resources or grant application log-writer access.
  */
 export class MistifyStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
-
-    /**
-     * Log Group
-     */
-    new LogGroup(this, `${this.stackName}ServiceLogGroup`, {
-      logGroupName: '/services/mistify',
-      retention: RetentionDays.ONE_WEEK,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-    });
   }
 }
