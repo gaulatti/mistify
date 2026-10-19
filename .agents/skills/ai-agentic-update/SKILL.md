@@ -58,6 +58,11 @@ content, and failed managed commits still stop work and must be reported. Do not
 invent a new snapshot or ignore these errors. Initial installation without a
 committed snapshot needs an authorized maintainer.
 
+The unavailable-access check rejects tracked edits and all untracked additions
+inside centrally owned skill directories, including ignored files. Remove or
+commit intended managed changes before relying on a checked-in snapshot. Files
+in differently named local skills and unrelated product work remain untouched.
+
 For a task worktree already stopped by the legacy dirty-metadata failure, do not
 blindly invoke the updater again. Preserve unrelated work and restart the ticket
 from a fresh current-default-branch worktree after the compatibility release is

@@ -182,6 +182,7 @@ use_installed_standard() {
   local manifest='.agents/skills/.bastille-managed'
   local legacy='.agents/skills/.agentic-coding-managed'
   local skill=''
+  local untracked=''
   local paths=()
 
   if ! installed="$(installed_managed_block < "${TARGET_REPOSITORY}/AGENTS.md")" \
@@ -211,8 +212,12 @@ use_installed_standard() {
     fi
     paths+=(".agents/skills/${skill}")
   done < "${TARGET_REPOSITORY}/${manifest}"
+  # Do not exclude ignored files: every addition beneath a centrally owned
+  # skill is outside the checked-in snapshot, even if a local ignore hides it.
+  untracked="$(git -C "${TARGET_REPOSITORY}" ls-files --others -- "${paths[@]}")" || return
   if ! git -C "${TARGET_REPOSITORY}" ls-files --error-unmatch "${manifest}" >/dev/null 2>&1 \
-    || ! git -C "${TARGET_REPOSITORY}" diff --quiet HEAD -- "${paths[@]}"; then
+    || ! git -C "${TARGET_REPOSITORY}" diff --quiet HEAD -- "${paths[@]}" \
+    || [[ -n "${untracked}" ]]; then
     printf 'error: central access unavailable and installed managed skills are not a clean checked-in snapshot: %s\n' "${TARGET_REPOSITORY}" >&2
     return 1
   fi
