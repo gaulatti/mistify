@@ -124,7 +124,28 @@ uv run pytest
 
 # Only the model-dependent tests (downloads weights; not run in CI).
 uv run pytest -m slow
+
+# With coverage, as CI reports it.
+uv run pytest -m "not slow" --cov
 ```
+
+**On macOS arm64, run the suite with Python 3.11**, not 3.10:
+
+```bash
+uv run --python 3.11 pytest -m "not slow" --cov
+```
+
+The lockfile resolves scipy 1.15.3 for Python 3.10 and 1.17.1 for 3.11+, and the
+3.10 wheel fails to load on recent macOS arm64 (`__DATA/__thread_bss has a
+zero-fill section type, but offset field is not zero`). That takes sklearn,
+sentence-transformers and transformers down with it, so five test modules fail
+collection for reasons unrelated to the code under test. Python 3.11 uses the
+working wheel and the whole suite passes locally with real dependencies. CI
+remains the gate and runs 3.10.
+
+Coverage counts branches as well as statements, and omits the `grpcio-tools`
+generated protobuf stubs in `src/grpc/mistify/` — covering those measures
+`protoc`, not this repository. Coverage is reported, not gated.
 
 Mark any test that needs real model weights or takes a long time with
 `@pytest.mark.slow`. Unknown markers are rejected (`--strict-markers`), so a

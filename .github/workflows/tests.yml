@@ -50,8 +50,10 @@ jobs:
 
       - name: Run required tests
         run: |
+          # Bare --cov so [tool.coverage.run] in pyproject.toml applies: branch
+          # coverage, and the generated protobuf stubs omitted.
           uv run --frozen --python 3.10 pytest -m "not slow" -q \
-            --cov=src --cov-report=term-missing --cov-report=xml:coverage.xml
+            --cov --cov-report=term-missing --cov-report=xml:coverage.xml
 
       - name: Report coverage
         if: always()
