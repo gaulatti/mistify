@@ -1,4 +1,4 @@
-<!-- BEGIN AGENTIC-CODING MANAGED RULES -->
+<!-- BEGIN BASTILLE MANAGED RULES -->
 # General agent instructions
 
 These rules are the reference standard for agent work across all repositories.
@@ -11,7 +11,7 @@ weaken or contradict these rules.
   or substantive repository work, run
   `.agents/skills/ai-agentic-update/scripts/update` once from the repository
   root.
-- The updater must fetch the central `agentic-coding` standard and, when a newer
+- The updater must attempt to fetch the central `bastille` standard and, when a newer
   version exists, refresh only the managed rules and centrally owned skills in
   the current repository and create a narrowly scoped Conventional Commit for
   those managed files. For public repositories it must also verify the
@@ -20,13 +20,26 @@ weaken or contradict these rules.
   expected wiki remote. Reread the updated root `AGENTS.md`, any applicable
   skills, and the relevant wiki pages for public repositories before
   continuing.
-- Do not silently skip or weaken the freshness check. If the central source
-  cannot be verified or the update fails, stop before other repository mutations
-  and report the exact failure.
+- Access to private bastille must never be a prerequisite for agent execution.
+  If the central source cannot be reached or access is denied, the updater must
+  report that it is using the checked-in managed rules and skills and continue
+  without changing them. Developers need no central-repository credential.
+  Maintainers or trusted automation with access can refresh and publish snapshots.
+  Invalid or incomplete installed metadata, malformed central rules, and failed
+  metadata commits remain errors; stop and report those failures.
 - The freshness update must preserve repository-local instructions, local-only
   skills, wiki changes, and unrelated worktree changes. It must not include
   product files in its metadata commit, and it must not push, deploy, reset,
   rebase, or discard changes.
+- Startup must also run the installed `ensure-clouseau` bootstrap after the
+  managed-standard check, including when private bastille is unavailable. It
+  refreshes the public Clouseau source and one shared user-wide agent skill.
+  Agent installation must not add Actions workflows, provider keys, CI review,
+  branch rules or deployment configuration. Those integrations are separate.
+- Before opening a PR, run the current shared Clouseau skill locally, investigate
+  its findings and repair demonstrated blockers within the accepted requirement.
+  An explicitly integrated CI verifier may consume a trusted signed receipt for
+  the exact final revision. An unsigned report cannot authorize CI approval.
 - Do not continue product work with dirty managed metadata. If the updater
   cannot commit its `AGENTS.md`, managed-skills manifest, and centrally owned
   skills cleanly, stop and report the failure instead of treating those files
@@ -376,6 +389,6 @@ render. The corresponding API query, time bounds, persistence rules, count
 aggregation, final-slot boundary, labels, and rendered occupancy indicators
 must all cover the expanded window, and a regression test must exercise that
 end-to-end contract.
-<!-- END AGENTIC-CODING MANAGED RULES -->
+<!-- END BASTILLE MANAGED RULES -->
 
 <!-- Repository-specific instructions below are maintained locally. -->
