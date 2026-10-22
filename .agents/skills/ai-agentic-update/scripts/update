@@ -2,10 +2,10 @@
 
 set -euo pipefail
 
-readonly CANONICAL_REMOTE='git@github.com:gaulatti/agentic-coding.git'
+readonly CANONICAL_REMOTE='git@github.com:gaulatti/bastille.git'
 
 TARGET_REPOSITORY=''
-REFERENCE_REPOSITORY="${AI_AGENTIC_CODING_REPOSITORY:-}"
+REFERENCE_REPOSITORY="${BASTILLE_REPOSITORY:-}"
 FETCH='true'
 
 usage() {
@@ -158,6 +158,73 @@ ensure_wiki_checkout() {
   printf 'wiki-current\trepository=%s\tremote=%s\n' "${repository}" "${wiki_remote}"
 }
 
+installed_managed_block() {
+  awk '
+    /^<!-- BEGIN (BASTILLE|AGENTIC-CODING) MANAGED RULES -->$/ {
+      if (inside || seen++) exit 1
+      inside = 1
+      expected = $0
+      sub(/BEGIN/, "END", expected)
+    }
+    inside { print }
+    /^<!-- END (BASTILLE|AGENTIC-CODING) MANAGED RULES -->$/ {
+      if (!inside || $0 != expected) exit 1
+      inside = 0
+      complete++
+    }
+    END { if (inside || seen != 1 || complete != 1) exit 1 }
+  '
+}
+
+use_installed_standard() {
+  local installed=''
+  local committed=''
+  local manifest='.agents/skills/.bastille-managed'
+  local legacy='.agents/skills/.agentic-coding-managed'
+  local skill=''
+  local untracked=''
+  local paths=()
+
+  if ! installed="$(installed_managed_block < "${TARGET_REPOSITORY}/AGENTS.md")" \
+    || ! committed="$(git -C "${TARGET_REPOSITORY}" show HEAD:AGENTS.md 2>/dev/null | installed_managed_block)" \
+    || [[ "${installed}" != "${committed}" ]]; then
+    printf 'error: central access unavailable and no complete unchanged checked-in managed rules exist: %s\n' "${TARGET_REPOSITORY}" >&2
+    return 1
+  fi
+  if [[ ! -f "${TARGET_REPOSITORY}/${manifest}" ]]; then
+    manifest="${legacy}"
+  elif [[ -f "${TARGET_REPOSITORY}/${legacy}" ]] \
+    && ! cmp -s "${TARGET_REPOSITORY}/${manifest}" "${TARGET_REPOSITORY}/${legacy}"; then
+    printf 'error: central access unavailable and installed manifests conflict: %s\n' "${TARGET_REPOSITORY}" >&2
+    return 1
+  fi
+  if [[ ! -f "${TARGET_REPOSITORY}/${manifest}" ]]; then
+    printf 'error: central access unavailable and installed skill ownership is missing: %s\n' "${TARGET_REPOSITORY}" >&2
+    return 1
+  fi
+  paths+=("${manifest}")
+  while IFS= read -r skill; do
+    [[ -z "${skill}" ]] && continue
+    if [[ ! "${skill}" =~ ^[a-z0-9][a-z0-9_-]*$ ]] \
+      || [[ ! -f "${TARGET_REPOSITORY}/.agents/skills/${skill}/SKILL.md" ]]; then
+      printf 'error: central access unavailable and installed skill metadata is invalid: %s\n' "${TARGET_REPOSITORY}" >&2
+      return 1
+    fi
+    paths+=(".agents/skills/${skill}")
+  done < "${TARGET_REPOSITORY}/${manifest}"
+  # Do not exclude ignored files: every addition beneath a centrally owned
+  # skill is outside the checked-in snapshot, even if a local ignore hides it.
+  untracked="$(git -C "${TARGET_REPOSITORY}" ls-files --others -- "${paths[@]}")" || return
+  if ! git -C "${TARGET_REPOSITORY}" ls-files --error-unmatch "${manifest}" >/dev/null 2>&1 \
+    || ! git -C "${TARGET_REPOSITORY}" diff --quiet HEAD -- "${paths[@]}" \
+    || [[ -n "${untracked}" ]]; then
+    printf 'error: central access unavailable and installed managed skills are not a clean checked-in snapshot: %s\n' "${TARGET_REPOSITORY}" >&2
+    return 1
+  fi
+  ensure_wiki_checkout "${TARGET_REPOSITORY}" || return
+  printf 'bastille-unavailable\trepository=%s\tusing=checked-in-managed-snapshot\treason=central-access-unavailable\n' "${TARGET_REPOSITORY}"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repository)
@@ -200,12 +267,12 @@ if ! git -C "${TARGET_REPOSITORY}" rev-parse --show-toplevel >/dev/null 2>&1; th
 fi
 
 if [[ -z "${REFERENCE_REPOSITORY}" ]]; then
-  known_reference='/Users/gaulatti/source/gaulatti/agentic-coding'
+  known_reference='/Users/gaulatti/source/gaulatti/bastille'
   if git -C "${known_reference}" rev-parse --show-toplevel >/dev/null 2>&1; then
     REFERENCE_REPOSITORY="${known_reference}"
   else
     cache_base="${XDG_CACHE_HOME:-${HOME}/.cache}"
-    REFERENCE_REPOSITORY="${cache_base}/ai-agentic-update/agentic-coding"
+    REFERENCE_REPOSITORY="${cache_base}/ai-agentic-update/bastille"
   fi
 fi
 
@@ -215,12 +282,18 @@ if ! git -C "${REFERENCE_REPOSITORY}" rev-parse --show-toplevel >/dev/null 2>&1;
     exit 1
   fi
   mkdir -p "$(dirname "${REFERENCE_REPOSITORY}")"
-  git clone --quiet "${CANONICAL_REMOTE}" "${REFERENCE_REPOSITORY}"
+  if ! GIT_TERMINAL_PROMPT=0 git clone --quiet "${CANONICAL_REMOTE}" "${REFERENCE_REPOSITORY}"; then
+    use_installed_standard
+    exit $?
+  fi
 fi
 REFERENCE_REPOSITORY="$(cd "${REFERENCE_REPOSITORY}" && pwd)"
 
 if [[ "${FETCH}" == 'true' ]]; then
-  git -C "${REFERENCE_REPOSITORY}" fetch --quiet origin --prune
+  if ! GIT_TERMINAL_PROMPT=0 git -C "${REFERENCE_REPOSITORY}" fetch --quiet origin --prune; then
+    use_installed_standard
+    exit $?
+  fi
 fi
 
 remote_branch=''
@@ -273,9 +346,13 @@ if [[ "${target_common}" == "${reference_common}" ]]; then
 fi
 
 snapshot=''
+handoff_script=''
 cleanup() {
   if [[ -n "${snapshot}" && -d "${snapshot}" ]]; then
     rm -rf "${snapshot}"
+  fi
+  if [[ -n "${handoff_script}" && -f "${handoff_script}" ]]; then
+    rm -f "${handoff_script}"
   fi
 }
 trap cleanup EXIT
@@ -301,7 +378,39 @@ if [[ ! -x "${update_source}/scripts/sync" ]]; then
   exit 1
 fi
 
-AI_AGENTIC_CODING_COMMIT="${central_commit}" \
+fetched_updater="${update_source}/.agents/skills/ai-agentic-update/scripts/update"
+running_updater="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+if [[ -x "${fetched_updater}" ]] && ! cmp -s "${running_updater}" "${fetched_updater}"; then
+  if [[ -n "${AI_AGENTIC_UPDATE_HANDOFF:-}" ]]; then
+    printf 'error: updater handoff did not converge at central revision %s\n' \
+      "${central_commit}" >&2
+    exit 1
+  fi
+
+  handoff_script="$(mktemp "${TMPDIR:-/tmp}/ai-agentic-update-handoff.XXXXXX")"
+  cp "${fetched_updater}" "${handoff_script}"
+  chmod 0755 "${handoff_script}"
+  rm -rf "${snapshot}"
+  snapshot=''
+  printf 'agentic-handoff\trepository=%s\tcommit=%s\n' \
+    "${TARGET_REPOSITORY}" "${central_commit}"
+
+  handoff_args=(
+    --repository "${TARGET_REPOSITORY}"
+    --reference-repository "${REFERENCE_REPOSITORY}"
+  )
+  if [[ "${FETCH}" != 'true' ]]; then
+    handoff_args+=(--no-fetch)
+  fi
+  if AI_AGENTIC_UPDATE_HANDOFF='1' "${handoff_script}" "${handoff_args[@]}"; then
+    handoff_status=0
+  else
+    handoff_status=$?
+  fi
+  exit "${handoff_status}"
+fi
+
+BASTILLE_COMMIT="${central_commit}" \
   "${update_source}/scripts/sync" --write --commit --repository "${TARGET_REPOSITORY}"
 "${update_source}/scripts/sync" --check --repository "${TARGET_REPOSITORY}"
 ensure_wiki_checkout "${TARGET_REPOSITORY}"
