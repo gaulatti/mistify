@@ -1,6 +1,4 @@
-import ast
 import asyncio
-import pathlib
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
@@ -10,6 +8,7 @@ from prometheus_client import generate_latest
 from prometheus_client.parser import text_string_to_metric_families
 
 from src.endpoints import translation as translation_module
+from src.helpers.async_wrappers import SEAMLESS_LANG_MAPPING, map_language
 from src.metrics import TRANSLATION_SKIP_REASONS
 from src.endpoints.translation import (
     SUPPORTED_TRANSLATION_LANGUAGES,
@@ -19,18 +18,7 @@ from src.endpoints.translation import (
 )
 from src.models import TranslationRequest
 
-_ASYNC_WRAPPERS = pathlib.Path(__file__).parent.parent / "src" / "helpers" / "async_wrappers.py"
 
-
-def _seamless_lang_mapping():
-    """Read the mapping table literal; it is a local inside `_translate_sync`."""
-    tree = ast.parse(_ASYNC_WRAPPERS.read_text())
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == "seamless_lang_mapping" for t in node.targets
-        ):
-            return ast.literal_eval(node.value)
-    raise AssertionError("seamless_lang_mapping not found")
 
 
 class _FakeFastText:
@@ -83,18 +71,16 @@ def test_finnish_is_supported_and_maps_to_seamless_fin():
     """Seamless M4T v2 exposes a `fin` token; `fi` was missing from both tables."""
     assert "fi" in SUPPORTED_TRANSLATION_LANGUAGES
     assert "fin" in SUPPORTED_TRANSLATION_LANGUAGES
-    mapping = _seamless_lang_mapping()
-    assert mapping["fi"] == "fin"
-    assert mapping["fin"] == "fin"
+    assert map_language("fi", SEAMLESS_LANG_MAPPING, "eng") == "fin"
+    assert map_language("fin", SEAMLESS_LANG_MAPPING, "eng") == "fin"
 
 
 def test_every_supported_two_letter_code_reaches_the_translator():
     """Guards the bug class: a language may not be accepted and then unmappable."""
-    mapping = _seamless_lang_mapping()
     unmappable = sorted(
         code
         for code in SUPPORTED_TRANSLATION_LANGUAGES
-        if len(code) == 2 and code not in mapping
+        if len(code) == 2 and code not in SEAMLESS_LANG_MAPPING
     )
     assert unmappable == []
 
