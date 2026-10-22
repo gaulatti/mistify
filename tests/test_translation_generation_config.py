@@ -1,6 +1,7 @@
-import inspect
-
-from src.helpers.async_wrappers import _translate_sync, approximate_token_count
+from src.helpers.async_wrappers import (
+    approximate_token_count,
+    seamless_generation_kwargs,
+)
 
 JAPANESE_HEADLINE = "政府は新しい経済対策を発表しました"
 THAI_HEADLINE = "รัฐบาลประกาศมาตรการเศรษฐกิจใหม่"
@@ -45,12 +46,26 @@ def test_seamless_generation_blocks_repeated_trigrams():
     Beam search with `do_sample=False` and no repetition guard loops whenever the
     decoder's EOS probability stays low, which is common for unspaced scripts.
     """
-    source = inspect.getsource(_translate_sync)
-    assert "no_repeat_ngram_size" in source
+    kwargs = seamless_generation_kwargs(SPANISH_HEADLINE)
+    assert kwargs["no_repeat_ngram_size"] == 3
+    assert kwargs["do_sample"] is False
+    assert kwargs["num_beams"] == 4
 
 
-def test_seamless_decode_budget_is_not_a_flat_floor():
-    """The 96-token floor gave a five-word headline an eight-fold budget to wander."""
-    source = inspect.getsource(_translate_sync)
-    assert "max(96, min(384" not in source
-    assert "approximate_token_count(text_to_translate)" in source
+def test_seamless_decode_budget_scales_with_the_input():
+    """The old flat 96-token floor gave a five-word headline an eight-fold budget."""
+    short = seamless_generation_kwargs("Government announces new budget")
+    long_text = seamless_generation_kwargs(JAPANESE_HEADLINE * 20)
+
+    assert short["max_new_tokens"] == 48, "floor, not the old 96"
+    assert long_text["max_new_tokens"] > short["max_new_tokens"]
+    assert long_text["max_new_tokens"] <= 384, "capped"
+
+
+def test_seamless_decode_budget_tracks_unspaced_script_length():
+    """`str.split()` is flat for CJK, so the budget must not be derived from it."""
+    one_line = seamless_generation_kwargs(JAPANESE_HEADLINE)
+    eight_lines = seamless_generation_kwargs(JAPANESE_HEADLINE * 8)
+
+    assert len(JAPANESE_HEADLINE.split()) == len((JAPANESE_HEADLINE * 8).split()) == 1
+    assert eight_lines["max_new_tokens"] > one_line["max_new_tokens"]

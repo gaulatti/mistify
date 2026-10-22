@@ -202,129 +202,173 @@ def _classify_batch_sync(
         return [_classify_sync(classifier, text, labels) for text in cleaned]
 
 
+# Seamless and Helsinki accept different language-code vocabularies. These tables
+# were rebuilt inside `_translate_sync` on every call; they are constants.
+SEAMLESS_LANG_MAPPING = {
+    "af": "afr", "am": "amh", "ar": "arb", "arz": "arz", "as": "asm",
+    "az": "azj", "be": "bel", "bg": "bul", "bn": "ben", "bs": "bos",
+    "ca": "cat", "ceb": "ceb", "cs": "ces", "cy": "cym", "da": "dan",
+    "de": "deu", "el": "ell", "en": "eng", "es": "spa", "et": "est",
+    "eu": "eus", "fa": "pes", "ff": "fuv", "fi": "fin", "fr": "fra", "ga": "gle",
+    "gl": "glg", "gu": "guj", "he": "heb", "hi": "hin", "hr": "hrv",
+    "hu": "hun", "hy": "hye", "id": "ind", "ig": "ibo", "is": "isl",
+    "it": "ita", "ja": "jpn", "jv": "jav", "ka": "kat", "kk": "kaz",
+    "km": "khm", "kn": "kan", "ko": "kor", "ky": "kir", "lo": "lao",
+    "lt": "lit", "lv": "lvs", "mk": "mkd", "ml": "mal", "mn": "khk",
+    "mr": "mar", "ms": "zlm", "mt": "mlt", "my": "mya", "ne": "npi",
+    "nl": "nld", "nn": "nno", "no": "nob", "ny": "nya", "or": "ory",
+    "pa": "pan", "pl": "pol", "ps": "pbt", "pt": "por", "ro": "ron",
+    "ru": "rus", "sd": "snd", "sk": "slk", "sl": "slv", "sn": "sna",
+    "so": "som", "sr": "srp", "sv": "swe", "sw": "swh", "ta": "tam",
+    "te": "tel", "tg": "tgk", "th": "tha", "tl": "tgl", "tr": "tur",
+    "uk": "ukr", "ur": "urd", "uz": "uzn", "vi": "vie", "yo": "yor",
+    "zh": "cmn", "zu": "zul",
+    "afr": "afr", "amh": "amh", "arb": "arb", "ary": "ary", "asm": "asm",
+    "azj": "azj", "bel": "bel", "ben": "ben", "bos": "bos", "bul": "bul",
+    "cat": "cat", "ces": "ces", "ckb": "ckb", "cmn": "cmn", "cmn-hant": "cmn_Hant",
+    "cym": "cym", "deu": "deu", "ell": "ell", "eng": "eng", "est": "est",
+    "eus": "eus", "fin": "fin", "fuv": "fuv", "gaz": "gaz", "gle": "gle", "glg": "glg",
+    "guj": "guj", "heb": "heb", "hin": "hin", "hrv": "hrv", "hun": "hun",
+    "hye": "hye", "ibo": "ibo", "ind": "ind", "isl": "isl", "jav": "jav",
+    "jpn": "jpn", "kan": "kan", "kat": "kat", "kaz": "kaz", "khk": "khk",
+    "khm": "khm", "kir": "kir", "lao": "lao", "lug": "lug", "luo": "luo",
+    "mai": "mai", "mal": "mal", "mar": "mar", "mkd": "mkd", "mlt": "mlt",
+    "mni": "mni", "mya": "mya", "nld": "nld", "nno": "nno", "nob": "nob",
+    "npi": "npi", "ory": "ory", "pan": "pan", "pbt": "pbt", "pes": "pes",
+    "pol": "pol", "por": "por", "ron": "ron", "rus": "rus", "sat": "sat",
+    "slk": "slk", "slv": "slv", "sna": "sna", "snd": "snd", "som": "som",
+    "spa": "spa", "srp": "srp", "swe": "swe", "swh": "swh", "tam": "tam",
+    "tel": "tel", "tgk": "tgk", "tgl": "tgl", "ukr": "ukr", "urd": "urd",
+    "uzn": "uzn", "vie": "vie", "yor": "yor", "yue": "yue", "zlm": "zlm",
+    "zul": "zul"
+}
+
+STANDARD_LANG_MAPPING = {
+    "en": "en", "es": "es", "fr": "fr", "de": "de", "it": "it",
+    "pt": "pt", "ru": "ru", "zh": "zh", "ja": "ja", "ko": "ko",
+    "ar": "ar", "hi": "hi", "tr": "tr", "pl": "pl", "nl": "nl",
+    "he": "he", "sv": "sv", "da": "da", "no": "no", "fi": "fi",
+    "fa": "fa", "ur": "ur", "id": "id", "vi": "vi", "th": "th",
+    "uk": "uk", "cs": "cs", "ro": "ro", "hu": "hu", "el": "el",
+    "bg": "bg", "sr": "sr", "hr": "hr", "sk": "sk", "sl": "sl",
+    "et": "et", "lv": "lv", "lt": "lt"
+}
+
+LANG_ALIASES = {
+    "jp": "ja", "jpn": "ja", "japanese": "ja",
+    "fas": "fa", "per": "fa", "pes": "fa", "farsi": "fa", "persian": "fa",
+    "iw": "he", "heb": "he", "hebrew": "he",
+    "zh-cn": "zh", "zh-tw": "cmn-hant", "cmn": "zh", "chi": "zh", "zho": "zh", "chinese": "zh",
+    "eng": "en", "english": "en",
+    "spa": "es", "spanish": "es",
+    "fra": "fr", "fre": "fr", "french": "fr",
+    "deu": "de", "ger": "de", "german": "de",
+    "arb": "ar", "ara": "ar", "arabic": "ar",
+    "ast": "es", "lim": "nl", "vec": "it",
+}
+
+def clean_language_code(lang: Optional[str]) -> Optional[str]:
+    if not lang:
+        return None
+
+    cleaned = str(lang).strip().lower()
+    if not cleaned:
+        return None
+
+    cleaned = cleaned.replace("__label__", "")
+    cleaned = cleaned.split(".", 1)[0]
+    cleaned = cleaned.replace("_", "-")
+
+    if cleaned in LANG_ALIASES:
+        return LANG_ALIASES[cleaned]
+
+    base = cleaned.split("-", 1)[0]
+    return LANG_ALIASES.get(base, base)
+
+def map_language(lang: Optional[str], mapping: Dict[str, str], default: str) -> str:
+    normalized = clean_language_code(lang)
+    if not normalized:
+        return default
+    return mapping.get(normalized, default)
+
+def seamless_generation_kwargs(text_to_translate: str) -> Dict:
+    approx_tokens = approximate_token_count(text_to_translate)
+    return {
+        # Scaled to the real input length instead of a flat 96-token floor, which
+        # handed a five-word headline an eight-fold decode budget to wander in.
+        "max_new_tokens": max(48, min(384, int(approx_tokens * 1.5) + 16)),
+        "num_beams": 4,
+        "do_sample": False,
+        "early_stopping": True,
+        "length_penalty": 1.0,
+        # Beam search with no repetition guard degenerates into loops such as
+        # "I'm sorry, I'm sorry, I'm sorry" when the decoder's EOS probability
+        # stays low. Blocking repeated trigrams ends the loop without penalising
+        # the legitimate repetition of names and places in news copy.
+        "no_repeat_ngram_size": 3,
+    }
+
+
+SEAMLESS_MAX_INPUT_TOKENS = 400   # Seamless M4T v2 handles ~1024; stay clear of OOM.
+STANDARD_MAX_INPUT_TOKENS = 350   # Helsinki-NLP and friends handle 512 comfortably.
+ULTRA_CONSERVATIVE_WORDS = 150
+LAST_RESORT_WORDS = 80
+
+
+def max_input_tokens_for(is_seamless: bool) -> int:
+    """Input word budget for the active backend."""
+    return SEAMLESS_MAX_INPUT_TOKENS if is_seamless else STANDARD_MAX_INPUT_TOKENS
+
+
+def smart_truncate(text: str, max_input_tokens: int) -> Optional[str]:
+    """Trim to whole sentences within the word budget.
+
+    Returns None when not even the first sentence fits, so the caller can fall
+    through to word-boundary truncation.
+    """
+    sentences = text.split('. ')
+    kept, word_count = [], 0
+    for sentence in sentences:
+        sentence_words = sentence.split()
+        if word_count + len(sentence_words) <= max_input_tokens:
+            kept.append(sentence)
+            word_count += len(sentence_words)
+        else:
+            break
+    if not kept:
+        return None
+    truncated = '. '.join(kept)
+    if not truncated.endswith('.'):
+        truncated += '.'
+    return truncated
+
+
+def truncation_candidates(text: str, max_input_tokens: int) -> List[tuple]:
+    """The ordered (label, text) attempts to make before the last resort.
+
+    Extracted so the escalation order is testable without a model. The sequence
+    deliberately keeps attempts that can repeat the same text: each retry runs
+    after `torch.cuda.empty_cache()`, so a repeat can still recover from a
+    transient out-of-memory failure.
+    """
+    words = text.split()
+    candidates = []
+    if len(words) <= max_input_tokens:
+        candidates.append(("(full text)", text))
+    else:
+        smart = smart_truncate(text, max_input_tokens)
+        if smart is not None:
+            candidates.append(("(smart truncated)", smart))
+    candidates.append(("(hard truncated)", " ".join(words[:max_input_tokens])))
+    candidates.append(("(ultra-conservative)", " ".join(words[:ULTRA_CONSERVATIVE_WORDS])))
+    return candidates
+
+
 def _translate_sync(translator, text: str, source_lang: Optional[str] = None, target_lang: str = "eng",
                     model_name: str = None):
-    """Synchronous translation function with progressive fallback strategies"""
-
-    # Initialize variables
-    is_seamless = model_name and "seamless" in model_name.lower()
-    input_length = len(text.split())
-
-    # Model-specific limits based on actual capabilities
-    if is_seamless:
-        # Seamless M4T v2 can handle longer sequences (up to ~1024 tokens)
-        max_input_tokens = 400  # More conservative limit to avoid memory issues
-        # For seamless, we don't use max_length parameter as it conflicts
-        suggested_max_length = None
-    else:
-        # Helsinki-NLP and other models typically handle 512 tokens well
-        max_input_tokens = 350
-        suggested_max_length = max(100, min(400, int(input_length * 1.5)))
-
-    # Language code mappings
-    seamless_lang_mapping = {
-        "af": "afr", "am": "amh", "ar": "arb", "arz": "arz", "as": "asm",
-        "az": "azj", "be": "bel", "bg": "bul", "bn": "ben", "bs": "bos",
-        "ca": "cat", "ceb": "ceb", "cs": "ces", "cy": "cym", "da": "dan",
-        "de": "deu", "el": "ell", "en": "eng", "es": "spa", "et": "est",
-        "eu": "eus", "fa": "pes", "ff": "fuv", "fi": "fin", "fr": "fra", "ga": "gle",
-        "gl": "glg", "gu": "guj", "he": "heb", "hi": "hin", "hr": "hrv",
-        "hu": "hun", "hy": "hye", "id": "ind", "ig": "ibo", "is": "isl",
-        "it": "ita", "ja": "jpn", "jv": "jav", "ka": "kat", "kk": "kaz",
-        "km": "khm", "kn": "kan", "ko": "kor", "ky": "kir", "lo": "lao",
-        "lt": "lit", "lv": "lvs", "mk": "mkd", "ml": "mal", "mn": "khk",
-        "mr": "mar", "ms": "zlm", "mt": "mlt", "my": "mya", "ne": "npi",
-        "nl": "nld", "nn": "nno", "no": "nob", "ny": "nya", "or": "ory",
-        "pa": "pan", "pl": "pol", "ps": "pbt", "pt": "por", "ro": "ron",
-        "ru": "rus", "sd": "snd", "sk": "slk", "sl": "slv", "sn": "sna",
-        "so": "som", "sr": "srp", "sv": "swe", "sw": "swh", "ta": "tam",
-        "te": "tel", "tg": "tgk", "th": "tha", "tl": "tgl", "tr": "tur",
-        "uk": "ukr", "ur": "urd", "uz": "uzn", "vi": "vie", "yo": "yor",
-        "zh": "cmn", "zu": "zul",
-        "afr": "afr", "amh": "amh", "arb": "arb", "ary": "ary", "asm": "asm",
-        "azj": "azj", "bel": "bel", "ben": "ben", "bos": "bos", "bul": "bul",
-        "cat": "cat", "ces": "ces", "ckb": "ckb", "cmn": "cmn", "cmn-hant": "cmn_Hant",
-        "cym": "cym", "deu": "deu", "ell": "ell", "eng": "eng", "est": "est",
-        "eus": "eus", "fin": "fin", "fuv": "fuv", "gaz": "gaz", "gle": "gle", "glg": "glg",
-        "guj": "guj", "heb": "heb", "hin": "hin", "hrv": "hrv", "hun": "hun",
-        "hye": "hye", "ibo": "ibo", "ind": "ind", "isl": "isl", "jav": "jav",
-        "jpn": "jpn", "kan": "kan", "kat": "kat", "kaz": "kaz", "khk": "khk",
-        "khm": "khm", "kir": "kir", "lao": "lao", "lug": "lug", "luo": "luo",
-        "mai": "mai", "mal": "mal", "mar": "mar", "mkd": "mkd", "mlt": "mlt",
-        "mni": "mni", "mya": "mya", "nld": "nld", "nno": "nno", "nob": "nob",
-        "npi": "npi", "ory": "ory", "pan": "pan", "pbt": "pbt", "pes": "pes",
-        "pol": "pol", "por": "por", "ron": "ron", "rus": "rus", "sat": "sat",
-        "slk": "slk", "slv": "slv", "sna": "sna", "snd": "snd", "som": "som",
-        "spa": "spa", "srp": "srp", "swe": "swe", "swh": "swh", "tam": "tam",
-        "tel": "tel", "tgk": "tgk", "tgl": "tgl", "ukr": "ukr", "urd": "urd",
-        "uzn": "uzn", "vie": "vie", "yor": "yor", "yue": "yue", "zlm": "zlm",
-        "zul": "zul"
-    }
-
-    standard_lang_mapping = {
-        "en": "en", "es": "es", "fr": "fr", "de": "de", "it": "it",
-        "pt": "pt", "ru": "ru", "zh": "zh", "ja": "ja", "ko": "ko",
-        "ar": "ar", "hi": "hi", "tr": "tr", "pl": "pl", "nl": "nl",
-        "he": "he", "sv": "sv", "da": "da", "no": "no", "fi": "fi",
-        "fa": "fa", "ur": "ur", "id": "id", "vi": "vi", "th": "th",
-        "uk": "uk", "cs": "cs", "ro": "ro", "hu": "hu", "el": "el",
-        "bg": "bg", "sr": "sr", "hr": "hr", "sk": "sk", "sl": "sl",
-        "et": "et", "lv": "lv", "lt": "lt"
-    }
-
-    lang_aliases = {
-        "jp": "ja", "jpn": "ja", "japanese": "ja",
-        "fas": "fa", "per": "fa", "pes": "fa", "farsi": "fa", "persian": "fa",
-        "iw": "he", "heb": "he", "hebrew": "he",
-        "zh-cn": "zh", "zh-tw": "cmn-hant", "cmn": "zh", "chi": "zh", "zho": "zh", "chinese": "zh",
-        "eng": "en", "english": "en",
-        "spa": "es", "spanish": "es",
-        "fra": "fr", "fre": "fr", "french": "fr",
-        "deu": "de", "ger": "de", "german": "de",
-        "arb": "ar", "ara": "ar", "arabic": "ar",
-        "ast": "es", "lim": "nl", "vec": "it",
-    }
-
-    def _clean_language_code(lang: Optional[str]) -> Optional[str]:
-        if not lang:
-            return None
-
-        cleaned = str(lang).strip().lower()
-        if not cleaned:
-            return None
-
-        cleaned = cleaned.replace("__label__", "")
-        cleaned = cleaned.split(".", 1)[0]
-        cleaned = cleaned.replace("_", "-")
-
-        if cleaned in lang_aliases:
-            return lang_aliases[cleaned]
-
-        base = cleaned.split("-", 1)[0]
-        return lang_aliases.get(base, base)
-
-    def _map_language(lang: Optional[str], mapping: Dict[str, str], default: str) -> str:
-        normalized = _clean_language_code(lang)
-        if not normalized:
-            return default
-        return mapping.get(normalized, default)
-
-    def _seamless_generation_kwargs(text_to_translate: str) -> Dict:
-        approx_tokens = approximate_token_count(text_to_translate)
-        return {
-            # Scaled to the real input length instead of a flat 96-token floor, which
-            # handed a five-word headline an eight-fold decode budget to wander in.
-            "max_new_tokens": max(48, min(384, int(approx_tokens * 1.5) + 16)),
-            "num_beams": 4,
-            "do_sample": False,
-            "early_stopping": True,
-            "length_penalty": 1.0,
-            # Beam search with no repetition guard degenerates into loops such as
-            # "I'm sorry, I'm sorry, I'm sorry" when the decoder's EOS probability
-            # stays low. Blocking repeated trigrams ends the loop without penalising
-            # the legitimate repetition of names and places in news copy.
-            "no_repeat_ngram_size": 3,
-        }
+    """Translate `text`, escalating through shorter inputs until one succeeds."""
+    is_seamless = bool(model_name and "seamless" in model_name.lower())
+    max_input_tokens = max_input_tokens_for(is_seamless)
 
     def _attempt_translation(text_to_translate, attempt_name=""):
         """Helper function to attempt translation with proper error handling"""
@@ -334,8 +378,8 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
 
             if is_seamless:
                 # Seamless M4T requires both src_lang and tgt_lang
-                mapped_source = _map_language(source_lang, seamless_lang_mapping, "eng")
-                mapped_target = _map_language(target_lang, seamless_lang_mapping, "eng")
+                mapped_source = map_language(source_lang, SEAMLESS_LANG_MAPPING, "eng")
+                mapped_target = map_language(target_lang, SEAMLESS_LANG_MAPPING, "eng")
 
                 # For Seamless M4T pipeline, use generation parameters
                 input_tokens = len(text_to_translate.split())
@@ -369,7 +413,7 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                             if isinstance(v, torch.Tensor):
                                 text_inputs[k] = v.to(model_device)
 
-                        generation_kwargs = _seamless_generation_kwargs(text_to_translate)
+                        generation_kwargs = seamless_generation_kwargs(text_to_translate)
                         logger.debug("Seamless generation parameters: %s", generation_kwargs)
                         generated_tokens = model.generate(
                             **text_inputs,
@@ -395,7 +439,7 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                             text_to_translate,
                             src_lang=mapped_source,
                             tgt_lang=mapped_target,
-                            **_seamless_generation_kwargs(text_to_translate),
+                            **seamless_generation_kwargs(text_to_translate),
                         )
                 except Exception as e1:
                     logger.warning(f"Direct model approach failed: {e1}")
@@ -419,7 +463,7 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
                 }
 
                 if source_lang:
-                    mapped_source = _map_language(source_lang, standard_lang_mapping, source_lang)
+                    mapped_source = map_language(source_lang, STANDARD_LANG_MAPPING, source_lang)
                     if model_name and "helsinki" in model_name.lower():
                         result = translator(text_to_translate, **translation_params)
                     else:
@@ -444,76 +488,26 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
             logger.warning(f"Translation attempt failed {attempt_name}: {e}")
             return None
 
-    # Strategy 1: Try with full text first (if not extremely long)
-    words = text.split()
-    if len(words) <= max_input_tokens:
-        logger.debug(f"Attempting translation with full text ({len(words)} words)")
-        result = _attempt_translation(text, "(full text)")
+    for attempt_name, candidate in truncation_candidates(text, max_input_tokens):
+        logger.debug("Attempting translation %s (%d words)", attempt_name, len(candidate.split()))
+        result = _attempt_translation(candidate, attempt_name)
         if result is not None:
             return result
 
-    # Strategy 2: Smart truncation to sentence boundaries
-    if len(words) > max_input_tokens:
-        logger.debug(f"Text too long ({len(words)} words), attempting smart truncation to {max_input_tokens} words")
-
-        # Try to truncate at sentence boundaries
-        sentences = text.split('. ')
-        truncated_sentences = []
-        word_count = 0
-
-        for sentence in sentences:
-            sentence_words = sentence.split()
-            if word_count + len(sentence_words) <= max_input_tokens:
-                truncated_sentences.append(sentence)
-                word_count += len(sentence_words)
-            else:
-                break
-
-        if truncated_sentences:
-            smart_truncated = '. '.join(truncated_sentences)
-            if not smart_truncated.endswith('.'):
-                smart_truncated += '.'
-
-            logger.debug(f"Smart truncation: {len(words)} -> {len(smart_truncated.split())} words")
-            result = _attempt_translation(smart_truncated, "(smart truncated)")
-            if result is not None:
-                return result
-
-    # Strategy 3: Hard truncation as fallback
-    logger.warning(f"Falling back to hard truncation at {max_input_tokens} words")
-    hard_truncated = " ".join(words[:max_input_tokens])
-    result = _attempt_translation(hard_truncated, "(hard truncated)")
-    if result is not None:
-        return result
-
-    # Strategy 4: Ultra-conservative fallback
-    logger.warning("Trying ultra-conservative approach with 150 words")
-    ultra_conservative = " ".join(words[:150])
-    result = _attempt_translation(ultra_conservative, "(ultra-conservative)")
-    if result is not None:
-        return result
-
-    # Strategy 5: Last resort with minimal parameters
+    # Last resort: the shortest input and the model's own default parameters.
     try:
-        logger.warning("Last resort: minimal parameters with 80 words")
-        minimal_text = " ".join(words[:80])
-
+        logger.warning("Last resort: minimal parameters with %d words", LAST_RESORT_WORDS)
+        minimal_text = " ".join(text.split()[:LAST_RESORT_WORDS])
         if is_seamless:
-            fallback_source = _map_language(source_lang, seamless_lang_mapping, "eng")
-            result = translator(
-                minimal_text,
-                src_lang=fallback_source,
-                tgt_lang="eng"
-            )
+            fallback_source = map_language(source_lang, SEAMLESS_LANG_MAPPING, "eng")
+            result = translator(minimal_text, src_lang=fallback_source, tgt_lang="eng")
         else:
             result = translator(minimal_text, max_length=100)
-
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         return result
-
     except Exception as final_e:
-        logger.error("❌ All translation strategies failed: %s", final_e)
+        logger.error("\u274c All translation strategies failed: %s", final_e)
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         return None
