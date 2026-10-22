@@ -47,3 +47,8 @@ node_modules
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+
+# Coverage artifacts
+.coverage
+coverage.xml
+htmlcov/
