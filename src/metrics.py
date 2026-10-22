@@ -231,6 +231,23 @@ POSTS_BATCH_SIZE = Histogram(
     buckets=(1, 2, 5, 10, 20, 50, 100, 200, 500, 1000),
 )
 
+# Translation deliberately declined because the resolved source language has no
+# supported translator equivalent. This is a healthy, text-preserving outcome
+# rather than a failure, so it is counted separately from
+# `mistify_operation_failures_total`. `reason` is a controlled enum; see
+# TRANSLATION_SKIP_REASONS.
+TRANSLATION_SKIPPED_TOTAL = Counter(
+    "mistify_translation_skipped_total",
+    "Translations declined because the source language has no supported equivalent",
+    labelnames=("reason",),
+)
+
+TRANSLATION_SKIP_REASONS = (
+    "declared_untranslatable",
+    "detected_unsupported",
+    "resolved_unsupported",
+)
+
 # ---- Retry/Failure metrics ---------------------------------------------------
 
 OPERATION_RETRIES_TOTAL = Counter(

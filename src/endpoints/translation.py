@@ -14,7 +14,7 @@ SUPPORTED_TRANSLATION_LANGUAGES = {
     "az", "azj", "be", "bel", "ben", "bg", "bn", "bos", "bs", "bul",
     "ca", "cat", "ceb", "ces", "ckb", "cmn", "cmn-hant", "cs", "cy", "cym",
     "da", "dan", "de", "deu", "el", "ell", "en", "eng", "es", "est",
-    "et", "eu", "eus", "fa", "ff", "fr", "fra", "fuv", "ga", "gaz",
+    "et", "eu", "eus", "fa", "ff", "fi", "fin", "fr", "fra", "fuv", "ga", "gaz",
     "gle", "gl", "glg", "gu", "guj", "he", "heb", "hi", "hin", "hr",
     "hrv", "hu", "hun", "hy", "hye", "id", "ibo", "ig", "ind", "is",
     "isl", "it", "ita", "ja", "jav", "jpn", "jv", "ka", "kan", "kat",
@@ -47,7 +47,25 @@ UNSUPPORTED_TRANSLATION_FALLBACKS = {
     "ast": "es",  # Asturian is not supported by Seamless; Spanish is the closest supported fallback.
     "lim": "nl",  # Limburgish is not supported by Seamless; Dutch is the closest supported fallback.
     "vec": "it",  # Venetian is not supported by Seamless; Italian is the closest supported fallback.
+    "cnr": "sr",  # Montenegrin is not supported by Seamless; Serbian is mutually intelligible.
+    "lb": "de",   # Luxembourgish is not supported by Seamless; German is the closest supported fallback.
+    "tk": "tr",   # Turkmen is not supported by Seamless; Turkish is the closest supported Turkic fallback.
 }
+
+# Languages the translator genuinely cannot handle and that have no mutually
+# intelligible supported relative. Translating these produces nonsense, so we keep
+# the original text instead of claiming a source language we know to be wrong.
+UNTRANSLATABLE_LANGUAGES = {
+    "sq", "sqi", "als",  # Albanian: its own Indo-European branch, no close supported relative.
+    "dv", "div",         # Dhivehi.
+    "rw", "kin",         # Kinyarwanda.
+    "mi", "mri",         # Maori.
+    "shn",               # Shan.
+}
+
+# A fastText label at or above this probability is treated as a real answer. Below it,
+# a lower-ranked but supported candidate may still be preferred.
+CONFIDENT_DETECTION_PROBABILITY = 0.50
 
 
 def _normalize_translation_language(language: str | None) -> str | None:
@@ -65,6 +83,19 @@ def _normalize_translation_language(language: str | None) -> str | None:
     if base in UNSUPPORTED_TRANSLATION_FALLBACKS:
         return UNSUPPORTED_TRANSLATION_FALLBACKS[base]
     return TRANSLATION_LANGUAGE_ALIASES.get(base, base)
+
+
+def _untranslated(
+    req: TranslationRequest, source_language: str | None, reason: str
+) -> TranslationResponse:
+    """Return the original text unchanged when translation would be guesswork."""
+    metrics.TRANSLATION_SKIPPED_TOTAL.labels(reason=reason).inc()
+    return TranslationResponse(
+        original_text=req.text,
+        translated_text=req.text,
+        source_language=source_language,
+        target_language=req.target_language,
+    )
 
 
 @router.post("/translate", response_model=TranslationResponse)
@@ -85,6 +116,13 @@ async def translate_text(req: TranslationRequest, http_request: Request):
             source_language,
         )
 
+    if source_language in UNTRANSLATABLE_LANGUAGES:
+        logger.info(
+            "Skipping translation: %s has no supported translator equivalent",
+            source_language,
+        )
+        return _untranslated(req, source_language, "declared_untranslatable")
+
     if app_state.fasttext_model is not None and (
         not source_language or source_language not in SUPPORTED_TRANSLATION_LANGUAGES
     ):
@@ -96,6 +134,23 @@ async def translate_text(req: TranslationRequest, http_request: Request):
                     (_normalize_translation_language(label), float(prob))
                     for label, prob in zip(labels, probs)
                 ]
+                # fastText returns candidates in descending probability. Preferring the
+                # first *supported* label regardless of probability let a confident
+                # detection lose to noise: Finnish at 0.998 was translated as Thai at
+                # 0.0005. A confident top label the translator cannot handle means the
+                # text is untranslatable, not that the runner-up is right.
+                top_language, top_probability = candidates[0] if candidates else (None, 0.0)
+                if (
+                    top_language
+                    and top_language not in SUPPORTED_TRANSLATION_LANGUAGES
+                    and top_probability >= CONFIDENT_DETECTION_PROBABILITY
+                ):
+                    logger.info(
+                        "Skipping translation: detected %s at %.4f, unsupported by the translator",
+                        top_language,
+                        top_probability,
+                    )
+                    return _untranslated(req, top_language, "detected_unsupported")
                 supported_candidate = next(
                     (lang for lang, _ in candidates if lang in SUPPORTED_TRANSLATION_LANGUAGES),
                     None,
@@ -124,11 +179,13 @@ async def translate_text(req: TranslationRequest, http_request: Request):
             source_language,
         )
     elif source_language not in SUPPORTED_TRANSLATION_LANGUAGES:
-        logger.warning(
-            "No supported FastText fallback found for source language %s; falling back to en",
+        # Claiming "en" for text we know is not English made Seamless transliterate
+        # noise. Keeping the original is both cheaper and more honest.
+        logger.info(
+            "Skipping translation: no supported equivalent for source language %s",
             source_language,
         )
-        source_language = "en"
+        return _untranslated(req, source_language, "resolved_unsupported")
 
     with metrics.record_operation("translate"):
         queue_wait_start = time.perf_counter()
