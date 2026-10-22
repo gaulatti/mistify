@@ -176,16 +176,6 @@ installed_managed_block() {
   '
 }
 
-finish_startup() {
-  ensure_wiki_checkout "$1" || return
-  local bootstrap="$1/.agents/skills/ai-agentic-update/scripts/ensure-clouseau"
-  if [[ ! -f "${bootstrap}" ]]; then
-    printf '%s\n' 'error: installed Clouseau agent bootstrap is missing' >&2
-    return 1
-  fi
-  bash "${bootstrap}"
-}
-
 use_installed_standard() {
   local installed=''
   local committed=''
@@ -231,7 +221,7 @@ use_installed_standard() {
     printf 'error: central access unavailable and installed managed skills are not a clean checked-in snapshot: %s\n' "${TARGET_REPOSITORY}" >&2
     return 1
   fi
-  finish_startup "${TARGET_REPOSITORY}" || return
+  ensure_wiki_checkout "${TARGET_REPOSITORY}" || return
   printf 'bastille-unavailable\trepository=%s\tusing=checked-in-managed-snapshot\treason=central-access-unavailable\n' "${TARGET_REPOSITORY}"
 }
 
@@ -323,7 +313,7 @@ reference_common="$(git -C "${REFERENCE_REPOSITORY}" rev-parse --path-format=abs
 
 if [[ "${target_common}" == "${reference_common}" ]]; then
   if [[ "${FETCH}" != 'true' ]]; then
-    finish_startup "${TARGET_REPOSITORY}"
+    ensure_wiki_checkout "${TARGET_REPOSITORY}"
     printf 'agentic-current\trepository=%s\tmode=working-tree\n' "${TARGET_REPOSITORY}"
     exit 0
   fi
@@ -332,7 +322,7 @@ if [[ "${target_common}" == "${reference_common}" ]]; then
   local_commit="$(git -C "${REFERENCE_REPOSITORY}" rev-parse HEAD)"
   remote_commit="$(git -C "${REFERENCE_REPOSITORY}" rev-parse "${remote_ref}")"
   if [[ "${local_commit}" == "${remote_commit}" ]]; then
-    finish_startup "${TARGET_REPOSITORY}"
+    ensure_wiki_checkout "${TARGET_REPOSITORY}"
     printf 'agentic-current\trepository=%s\tcommit=%s\n' "${TARGET_REPOSITORY}" "${remote_commit}"
     exit 0
   fi
@@ -350,7 +340,7 @@ if [[ "${target_common}" == "${reference_common}" ]]; then
     exit 1
   fi
   git -C "${REFERENCE_REPOSITORY}" merge --ff-only --quiet "${remote_ref}"
-  finish_startup "${TARGET_REPOSITORY}"
+  ensure_wiki_checkout "${TARGET_REPOSITORY}"
   printf 'agentic-updated\trepository=%s\tcommit=%s\n' "${TARGET_REPOSITORY}" "${remote_commit}"
   exit 0
 fi
@@ -423,6 +413,6 @@ fi
 BASTILLE_COMMIT="${central_commit}" \
   "${update_source}/scripts/sync" --write --commit --repository "${TARGET_REPOSITORY}"
 "${update_source}/scripts/sync" --check --repository "${TARGET_REPOSITORY}"
-finish_startup "${TARGET_REPOSITORY}"
+ensure_wiki_checkout "${TARGET_REPOSITORY}"
 
 printf 'agentic-updated\trepository=%s\tcommit=%s\n' "${TARGET_REPOSITORY}" "${central_commit}"
