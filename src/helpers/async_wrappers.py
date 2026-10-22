@@ -2,10 +2,35 @@
 
 import asyncio
 import logging
+import re
 import torch
 from typing import List, Optional, Dict
 
 logger = logging.getLogger(__name__)
+
+# Japanese, Chinese, Thai and other scriptio-continua text carries no spaces, so
+# `str.split()` reports one "word" for an entire headline. Any length estimate built
+# on whitespace therefore collapses for those scripts.
+_CONTINUOUS_SCRIPT = re.compile(
+    "["
+    "぀-ヿ"  # hiragana, katakana
+    "㐀-䶿"  # CJK extension A
+    "一-鿿"  # CJK unified ideographs
+    "豈-﫿"  # CJK compatibility ideographs
+    "฀-๿"  # Thai
+    "]"
+)
+
+
+def approximate_token_count(value: str) -> int:
+    """Estimate token count for both spaced and unspaced scripts.
+
+    One CJK/Thai character is roughly one token, so those are counted directly and
+    removed before falling back to whitespace splitting for the remainder.
+    """
+    continuous = len(_CONTINUOUS_SCRIPT.findall(value))
+    remainder = _CONTINUOUS_SCRIPT.sub(" ", value)
+    return max(1, continuous + len(remainder.split()))
 
 
 async def run_in_executor(loop, executor, func, *args):
@@ -202,7 +227,7 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
         "az": "azj", "be": "bel", "bg": "bul", "bn": "ben", "bs": "bos",
         "ca": "cat", "ceb": "ceb", "cs": "ces", "cy": "cym", "da": "dan",
         "de": "deu", "el": "ell", "en": "eng", "es": "spa", "et": "est",
-        "eu": "eus", "fa": "pes", "ff": "fuv", "fr": "fra", "ga": "gle",
+        "eu": "eus", "fa": "pes", "ff": "fuv", "fi": "fin", "fr": "fra", "ga": "gle",
         "gl": "glg", "gu": "guj", "he": "heb", "hi": "hin", "hr": "hrv",
         "hu": "hun", "hy": "hye", "id": "ind", "ig": "ibo", "is": "isl",
         "it": "ita", "ja": "jpn", "jv": "jav", "ka": "kat", "kk": "kaz",
@@ -220,7 +245,7 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
         "azj": "azj", "bel": "bel", "ben": "ben", "bos": "bos", "bul": "bul",
         "cat": "cat", "ces": "ces", "ckb": "ckb", "cmn": "cmn", "cmn-hant": "cmn_Hant",
         "cym": "cym", "deu": "deu", "ell": "ell", "eng": "eng", "est": "est",
-        "eus": "eus", "fuv": "fuv", "gaz": "gaz", "gle": "gle", "glg": "glg",
+        "eus": "eus", "fin": "fin", "fuv": "fuv", "gaz": "gaz", "gle": "gle", "glg": "glg",
         "guj": "guj", "heb": "heb", "hin": "hin", "hrv": "hrv", "hun": "hun",
         "hye": "hye", "ibo": "ibo", "ind": "ind", "isl": "isl", "jav": "jav",
         "jpn": "jpn", "kan": "kan", "kat": "kat", "kaz": "kaz", "khk": "khk",
@@ -285,15 +310,20 @@ def _translate_sync(translator, text: str, source_lang: Optional[str] = None, ta
         return mapping.get(normalized, default)
 
     def _seamless_generation_kwargs(text_to_translate: str) -> Dict:
-        word_tokens = len(text_to_translate.split())
-        char_tokens = max(1, len(text_to_translate) // 2)
-        approx_tokens = max(word_tokens, char_tokens)
+        approx_tokens = approximate_token_count(text_to_translate)
         return {
-            "max_new_tokens": max(96, min(384, int(approx_tokens * 2.0))),
+            # Scaled to the real input length instead of a flat 96-token floor, which
+            # handed a five-word headline an eight-fold decode budget to wander in.
+            "max_new_tokens": max(48, min(384, int(approx_tokens * 1.5) + 16)),
             "num_beams": 4,
             "do_sample": False,
             "early_stopping": True,
             "length_penalty": 1.0,
+            # Beam search with no repetition guard degenerates into loops such as
+            # "I'm sorry, I'm sorry, I'm sorry" when the decoder's EOS probability
+            # stays low. Blocking repeated trigrams ends the loop without penalising
+            # the legitimate repetition of names and places in news copy.
+            "no_repeat_ngram_size": 3,
         }
 
     def _attempt_translation(text_to_translate, attempt_name=""):
