@@ -222,3 +222,37 @@ Configure the service using the following environment variables:
 - `DOCKER_PLATFORM`: Optional Docker platform override for Compose builds/runs (default: `linux/amd64`). Useful on Apple Silicon when base images are amd64-only.
 - `LOAD_MODELS_ON_STARTUP`: Set to `false` to start the API without eagerly loading models (fast boot; model-backed endpoints can return `503` until models are loaded by your runtime strategy).
 - `TRANSLATION_ENABLED`: Set to `false` to skip loading translation models at startup (faster boot; `/translate` and translation in `/analyze` will return fallback/unavailable behavior).
+
+## Pull request verification
+
+Local agent review uses the shared `clouseau` skill with the developer's
+authenticated coding harness and the `.clouseau-local.json` recipe; it needs no
+CI provider keys. `AGENTS.md` owns the rule: run it against the final committed
+change before opening a PR, repair findings, and publish the passing signed
+receipt in the initial ready PR body. Never push directly to `main`.
+
+Every PR runs:
+
+- the required pytest suite (`-m "not slow"`) under coverage.py with branch measurement, using `.github/clouseau-coverage.rc` (no line exclusions) and Python 3.10 from the lockfile,
+- the infrastructure build, tests and CDK synthesis,
+- the workflow-contract tests in `.github/tests`.
+
+The Clouseau gate requires exactly 100% line and branch coverage over every
+production Python file in `src` (`coveragepy` format), including the generated
+protobuf bindings. New behaviour needs a test in `tests/`, never a coverage
+pragma. Until the suite reaches that bar the coverage step fails, so a PR stays
+in human review and is merged by the owner rather than automatically. The
+existing `tests.yml` workflow remains the deployment gate and is unchanged.
+
+A PR carrying an authenticated local review stamp is verified by the pinned
+Clouseau engine without AI credentials; unstamped PRs use the CI reviewer.
+Passing reviews receive a bot approval and native auto-merge. Unresolved
+product-direction questions go to the owner, and changes to review controls need
+the owner's `/approve-intent <head SHA>` comment. See [the purpose
+contract](.github/clouseau.md). The CI engine is resolved from protected
+Clouseau `main` at the start of each run (see
+[automatic Clouseau CI upgrades](https://github.com/gaulatti/clouseau/blob/main/docs/automatic-ci-upgrades.md)).
+
+CI needs these repository secrets: `DEEPSEEK_API_KEY` and `TYPESAFE_API_KEY` for
+the CI reviewer, and `DEPLOYMENT_TOKEN` (a token with contents write access
+from an identity other than `github-actions[bot]`) for automatic repairs.
