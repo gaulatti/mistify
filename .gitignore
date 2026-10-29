@@ -52,3 +52,4 @@ cdk.out
 .coverage
 coverage.xml
 htmlcov/
+coverage/
