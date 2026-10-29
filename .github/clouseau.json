@@ -1,0 +1,46 @@
+{
+  "version": 2,
+  "base_branch": "main",
+  "workflow": "ci.yml",
+  "verification": {
+    "job": "verify",
+    "steps": [
+      "Require passing unit and build checks",
+      "Enforce 100% line and branch coverage",
+      "Require workflow tests execution"
+    ]
+  },
+  "manual_reviewer": "gaulatti",
+  "merge_mode": "automatic",
+  "repository_policy": ".github/clouseau.md",
+  "readme": "README.md",
+  "sensitive_paths": [
+    ".clouseau-local.json",
+    ".github/clouseau-coverage.rc"
+  ],
+  "deployment": null,
+  "acceptance": {
+    "examiner": "deepseek-flash",
+    "challenger": "deepseek-v4-pro",
+    "grader": "routed",
+    "grading_model": "deepseek-flash",
+    "repair_attempts": 2
+  },
+  "local_review": {
+    "mode": "optional",
+    "max_age_seconds": 3600,
+    "keys": [
+      {
+        "id": "8a6d6c24abe59c9fbafd31cc",
+        "issuer": "local-8a6d6c24abe59c9fbafd31cc",
+        "github_actor": "gaulatti",
+        "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAp/os7kXSd5tLhgcyy61yPazqky0HfDNHdJL1oXNVfqU=\n-----END PUBLIC KEY-----\n",
+        "revoked": false
+      }
+    ],
+    "central_source": {
+      "repository": "gaulatti/clouseau",
+      "ref": "refs/heads/main"
+    }
+  }
+}
