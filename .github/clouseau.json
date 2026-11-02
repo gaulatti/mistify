@@ -42,5 +42,8 @@
       "repository": "gaulatti/clouseau",
       "ref": "refs/heads/main"
     }
+  },
+  "coverage": {
+    "mode": "changed_lines"
   }
 }

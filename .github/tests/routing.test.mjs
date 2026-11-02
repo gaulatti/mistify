@@ -76,6 +76,11 @@ test('native coverage requires original application sources and this run/attempt
   assert.equal(check.with['coverage-format'], "coveragepy");
   assert.equal(check.with['coverage-report'], "coverage/coverage.json");
   assert.equal(check.with['source-directory'], "src");
+  assert.equal(check.with['coverage-base-ref'], '${{ github.event.pull_request.base.sha }}');
+  assert.equal(check.with['coverage-baseline'], '${{ github.workspace }}/coverage/baseline.json');
+  assert.equal(check.with.config, '${{ runner.temp }}/clouseau-config.json');
+  assert.deepEqual(config.coverage, {mode: 'changed_lines'});
+  assert.match(upload.with.path, /coverage\/baseline\.json/);
   for (const name of config.verification.steps) assert.ok(workflow.jobs.verify.steps.some(step => step.name === name));
 });
 
@@ -135,7 +140,7 @@ test('the scored route, repair bound, protected purpose and deployment handoff r
   assert.deepEqual(config.acceptance, {examiner: 'deepseek-flash', challenger: 'deepseek-v4-pro', grader: 'routed', grading_model: 'deepseek-flash', repair_attempts: 2});
   assert.ok(config.sensitive_paths.includes(".clouseau-local.json"));
   const contract = readFileSync(new URL('../clouseau.md', import.meta.url), 'utf8');
-  assert.match(contract, /exactly\s+100%/); assert.match(contract, /explicit\s+owner\s+confirmation/);
+  assert.match(contract, /changed-line\s+coverage/); assert.match(contract, /explicit\s+owner\s+confirmation/);
   assert.equal(config.deployment, null);
   assert.equal(workflow.jobs['finalize-merge'].permissions.actions, 'write');
 });

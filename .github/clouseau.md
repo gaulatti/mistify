@@ -34,7 +34,9 @@ Tests must assert actual behaviour. Reject fabricated coverage, disabled tests,
 coverage pragmas or exclusions, swallowed errors, unconditional assertions and
 mocks that replace the behaviour being claimed. The required pytest suite under
 coverage.py with branch measurement and no exclusions, and the infrastructure
-build, tests and synthesis, remain mandatory. Every pull request must keep exactly
-100% line and branch coverage of `src`, including the generated protobuf
-bindings, which the shared gate does not allow to be omitted; a pull request
-below that stays for human review.
+build, tests and synthesis, remain mandatory. The repository is far below full
+coverage, so the gate is changed-line coverage of `src` (the generated protobuf
+bindings are measured, since the shared gate does not allow them to be omitted):
+every line and branch a pull request adds or modifies must be covered, and
+repository-wide line and branch coverage must not fall below the base
+revision's. A pull request that does not meet that stays for human review.

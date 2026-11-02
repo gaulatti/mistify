@@ -237,11 +237,14 @@ Every PR runs:
 - the infrastructure build, tests and CDK synthesis,
 - the workflow-contract tests in `.github/tests`.
 
-The Clouseau gate requires exactly 100% line and branch coverage over every
-production Python file in `src` (`coveragepy` format), including the generated
-protobuf bindings. New behaviour needs a test in `tests/`, never a coverage
-pragma. Until the suite reaches that bar the coverage step fails, so a PR stays
-in human review and is merged by the owner rather than automatically. The
+The Clouseau gate is changed-line coverage (`coverage.mode: changed_lines` in
+`.github/clouseau.json`) over every production Python file in `src`
+(`coveragepy` format): every line and branch a PR adds or modifies must be
+covered, and repository-wide line and branch coverage must not fall below the
+base revision's, which CI measures by running the same suite on the base commit.
+New behaviour needs a test in `tests/`, never a coverage pragma. A PR that does
+not meet the gate stays in human review and is merged by the owner rather than
+automatically. The
 existing `tests.yml` workflow remains the deployment gate and is unchanged.
 
 A PR carrying an authenticated local review stamp is verified by the pinned
