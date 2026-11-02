@@ -1,0 +1,4 @@
+# Clouseau measures every application line and branch with no exclusions.
+[report]
+exclude_lines =
+exclude_also =
