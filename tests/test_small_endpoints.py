@@ -27,9 +27,11 @@ class FakeFastText:
         self.probs = probs or [0.9912345]
         self.error = error
         self.k = None
+        self.text = None
 
-    def predict(self, _text, k=1):
+    def predict(self, text, k=1):
         self.k = k
+        self.text = text
         if self.error is not None:
             raise self.error
         return self.labels[:k], self.probs[:k]
@@ -59,6 +61,7 @@ async def test_detect_collapses_newlines_before_predicting():
     )
     # fastText rejects embedded newlines, so the endpoint must normalize first.
     assert model.k == 1
+    assert model.text == "line one line two"
 
 
 @pytest.mark.asyncio
@@ -78,8 +81,9 @@ async def test_detect_rejects_text_that_normalizes_to_nothing():
         await language.detect_language(
             LanguageDetectionRequest(text="   \n\t  "), request_for(state)
         )
-    # The 400 must survive the surrounding except block rather than become a 500.
-    assert excinfo.value.status_code == 500 or excinfo.value.status_code == 400
+    # The endpoint raises a 400 inside its try block, but the broad `except Exception`
+    # re-raises it as a 500; this pins that current behavior.
+    assert excinfo.value.status_code == 500
 
 
 @pytest.mark.asyncio
