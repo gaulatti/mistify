@@ -242,6 +242,10 @@ The Clouseau gate is changed-line coverage (`coverage.mode: changed_lines` in
 (`coveragepy` format): every line and branch a PR adds or modifies must be
 covered, and repository-wide line and branch coverage must not fall below the
 base revision's, which CI measures by running the same suite on the base commit.
+The base revision is the PR base on pull requests and `github.event.before` on a
+push to `main` (the "Verify main" run). A push whose before revision is unusable
+(a branch-creating push with an all-zero SHA, or a revision missing from the
+checkout) fails with an explicit error rather than falling back to another gate.
 New behaviour needs a test in `tests/`, never a coverage pragma. A PR that does
 not meet the gate stays in human review and is merged by the owner rather than
 automatically. The
