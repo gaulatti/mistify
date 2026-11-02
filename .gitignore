@@ -52,3 +52,7 @@ cdk.out
 .coverage
 coverage.xml
 htmlcov/
+coverage/
+.clouseau-ci
+.clouseau-review
+.github/tests/node_modules
