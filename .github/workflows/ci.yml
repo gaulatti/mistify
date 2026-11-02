@@ -92,7 +92,8 @@ jobs:
           uv run --frozen --python 3.10 python -m coverage json --rcfile=.github/clouseau-coverage.rc -o coverage/coverage.json
       - name: Measure base revision coverage for changed-line mode
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           LOAD_MODELS_ON_STARTUP: "false"
           HF_HUB_OFFLINE: "1"
           TRANSFORMERS_OFFLINE: "1"
@@ -100,6 +101,22 @@ jobs:
           UV_NO_PROGRESS: "1"
         run: |
           # Exact mode (the default) needs no baseline. The mode comes only from the accepted base configuration.
+          # A push has no pull request, so its base is the revision the branch pointed to before the push.
+          # Never weaken the gate when that base is unusable: stop with a clear error instead.
+          if test "$EVENT_NAME" = push; then
+            if test "$BASE_SHA" = 0000000000000000000000000000000000000000; then
+              echo "::error::Changed-line coverage needs the previous revision of the branch, but this push created it (the before SHA is all zeros). Re-run on a push to an existing branch."; exit 1
+            fi
+            if ! printf '%s' "$BASE_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+              echo "::error::Changed-line coverage needs the push base revision, but github.event.before is not a commit SHA."; exit 1
+            fi
+            if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+              echo "::error::Changed-line coverage needs the push base revision $BASE_SHA, but it is not in the checkout (history rewritten?)."; exit 1
+            fi
+            if ! git cat-file -e "$BASE_SHA:.github/clouseau.json" 2>/dev/null; then
+              echo "::error::The push base revision $BASE_SHA has no accepted .github/clouseau.json to select the coverage mode from."; exit 1
+            fi
+          fi
           if test -z "$BASE_SHA" || ! git cat-file -e "$BASE_SHA:.github/clouseau.json" 2>/dev/null; then exit 0; fi
           git show "$BASE_SHA:.github/clouseau.json" > "$RUNNER_TEMP/clouseau-config.json"
           if test "$(node .clouseau-ci/bin/coverage-gate.cjs mode "$RUNNER_TEMP/clouseau-config.json")" != changed_lines; then exit 0; fi
@@ -173,9 +190,26 @@ jobs:
       - name: Select accepted coverage configuration
         if: *verify-code
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           # The coverage mode comes only from the accepted base configuration, never from the contributor's file.
+          # A push has no pull request, so its base is the revision the branch pointed to before the push.
+          # Never weaken the gate when that base is unusable: stop with a clear error instead.
+          if test "$EVENT_NAME" = push; then
+            if test "$BASE_SHA" = 0000000000000000000000000000000000000000; then
+              echo "::error::Changed-line coverage needs the previous revision of the branch, but this push created it (the before SHA is all zeros). Re-run on a push to an existing branch."; exit 1
+            fi
+            if ! printf '%s' "$BASE_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+              echo "::error::Changed-line coverage needs the push base revision, but github.event.before is not a commit SHA."; exit 1
+            fi
+            if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+              echo "::error::Changed-line coverage needs the push base revision $BASE_SHA, but it is not in the checkout (history rewritten?)."; exit 1
+            fi
+            if ! git cat-file -e "$BASE_SHA:.github/clouseau.json" 2>/dev/null; then
+              echo "::error::The push base revision $BASE_SHA has no accepted .github/clouseau.json to select the coverage mode from."; exit 1
+            fi
+          fi
           if test -n "$BASE_SHA" && git cat-file -e "$BASE_SHA:.github/clouseau.json" 2>/dev/null; then
             git show "$BASE_SHA:.github/clouseau.json" > "$RUNNER_TEMP/clouseau-config.json"
           else
@@ -196,7 +230,7 @@ jobs:
           coverage-format: coveragepy
           coverage-report: coverage/coverage.json
           source-directory: src
-          coverage-base-ref: ${{ github.event.pull_request.base.sha }}
+          coverage-base-ref: ${{ github.event.pull_request.base.sha || github.event.before }}
           coverage-baseline: ${{ github.workspace }}/coverage/baseline.json
       - name: Require workflow tests execution
         if: *verify-code

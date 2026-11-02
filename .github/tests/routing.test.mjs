@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import {readFileSync, existsSync, symlinkSync, unlinkSync} from 'node:fs';
+import {readFileSync, existsSync, symlinkSync, unlinkSync, mkdtempSync, mkdirSync, writeFileSync, rmSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import test from 'node:test';
@@ -11,6 +14,7 @@ const require = createRequire(import.meta.url);
 const engine = fileURLToPath(new URL('../../.clouseau-ci/', import.meta.url));
 const config = require(`${engine}/src/config.cjs`).loadConfig(fileURLToPath(new URL('../clouseau.json', import.meta.url)));
 const head = 'a'.repeat(40);
+const baseExpression = '${{ github.event.pull_request.base.sha || github.event.before }}';
 
 function context(event, {draft = false, pullRequest = '', author = false, fork = false, assessment = 'success', record = true, repair = false, gate = 'success', ref = 'refs/heads/main', deleted = false} = {}) {
   return {
@@ -76,7 +80,7 @@ test('native coverage requires original application sources and this run/attempt
   assert.equal(check.with['coverage-format'], "coveragepy");
   assert.equal(check.with['coverage-report'], "coverage/coverage.json");
   assert.equal(check.with['source-directory'], "src");
-  assert.equal(check.with['coverage-base-ref'], '${{ github.event.pull_request.base.sha }}');
+  assert.equal(check.with['coverage-base-ref'], baseExpression);
   assert.equal(check.with['coverage-baseline'], '${{ github.workspace }}/coverage/baseline.json');
   assert.equal(check.with.config, '${{ runner.temp }}/clouseau-config.json');
   assert.deepEqual(config.coverage, {mode: 'changed_lines'});
@@ -196,4 +200,106 @@ test('the actual wait step uses fresh PR verification, reports pending work and 
 test('strict owner-only automatic merge is selected and backed by repository-wide ownership', () => {
   assert.equal(config.merge_mode, "automatic");
   assert.equal(readFileSync(new URL('../CODEOWNERS', import.meta.url), 'utf8'), '* @gaulatti\n');
+});
+
+test('every coverage base consumer uses the pull request base, or the push before revision', () => {
+  const unitStep = workflow.jobs.unit.steps.find(step => step.name === 'Measure base revision coverage for changed-line mode');
+  const selectStep = workflow.jobs.verify.steps.find(step => step.name === 'Select accepted coverage configuration');
+  const gateStep = workflow.jobs.verify.steps.find(step => step.with?.operation === 'coverage');
+  const pr = context('pull_request'); pr.github.event.pull_request.base = {sha: 'b'.repeat(40)}; pr.github.event.before = undefined;
+  const push = context('push'); push.github.event.pull_request = undefined; push.github.event.before = 'd'.repeat(40);
+  const manual = context('workflow_dispatch'); manual.github.event.pull_request = undefined;
+  for (const [expression, c, expected] of [
+    [unitStep.env.BASE_SHA, pr, 'b'.repeat(40)], [unitStep.env.BASE_SHA, push, 'd'.repeat(40)], [unitStep.env.BASE_SHA, manual, ''],
+    [selectStep.env.BASE_SHA, pr, 'b'.repeat(40)], [selectStep.env.BASE_SHA, push, 'd'.repeat(40)], [selectStep.env.BASE_SHA, manual, ''],
+    [gateStep.with['coverage-base-ref'], pr, 'b'.repeat(40)], [gateStep.with['coverage-base-ref'], push, 'd'.repeat(40)], [gateStep.with['coverage-base-ref'], manual, ''],
+  ]) assert.equal(evaluate(expression, c).coerceString(), expected);
+  assert.equal(unitStep.env.BASE_SHA, baseExpression);
+  assert.equal(selectStep.env.BASE_SHA, baseExpression);
+  assert.equal(unitStep.env.EVENT_NAME, '${{ github.event_name }}');
+  assert.equal(selectStep.env.EVENT_NAME, '${{ github.event_name }}');
+});
+
+function git(cwd, ...args) {
+  const result = spawnSync('git', args, {cwd, encoding: 'utf8', env: {...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t'}});
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
+}
+
+// Runs the real `run` script of a workflow step, in a throwaway repository, with the step's own env keys.
+function runStep(step, repository, env) {
+  const temp = mkdtempSync(join(tmpdir(), 'ci-step-'));
+  if (!existsSync(join(repository, '.clouseau-ci'))) symlinkSync(engine, join(repository, '.clouseau-ci'), 'dir');
+  const result = spawnSync('bash', ['-eo', 'pipefail', '-c', step.run], {cwd: repository, encoding: 'utf8', env: {PATH: process.env.PATH, RUNNER_TEMP: temp, ...env}});
+  const config = join(temp, 'clouseau-config.json');
+  const selected = existsSync(config) ? readFileSync(config, 'utf8') : null;
+  rmSync(temp, {recursive: true, force: true});
+  return {...result, selected};
+}
+
+function fixtureRepository() {
+  const repository = mkdtempSync(join(tmpdir(), 'ci-repo-'));
+  git(repository, 'init', '-q', '-b', 'main');
+  mkdirSync(join(repository, '.github'));
+  writeFileSync(join(repository, '.github/clouseau.json'), '{"coverage":{"mode":"exact"}}');
+  git(repository, 'add', '-A'); git(repository, 'commit', '-qm', 'base');
+  const base = git(repository, 'rev-parse', 'HEAD');
+  writeFileSync(join(repository, '.github/clouseau.json'), '{"coverage":{"mode":"changed_lines"}}');
+  git(repository, 'commit', '-qam', 'head');
+  const bare = mkdtempSync(join(tmpdir(), 'ci-repo-'));
+  git(bare, 'init', '-q', '-b', 'main');
+  writeFileSync(join(bare, 'readme'), 'x'); git(bare, 'add', '-A'); git(bare, 'commit', '-qm', 'no config');
+  return {repository, base, noConfig: git(bare, 'rev-parse', 'HEAD'), bare};
+}
+
+test('a push selects the accepted configuration from the before revision and fails clearly when it is unusable', (t) => {
+  const {repository, base, bare, noConfig} = fixtureRepository();
+  t.after(() => { rmSync(repository, {recursive: true, force: true}); rmSync(bare, {recursive: true, force: true}); });
+  const select = workflow.jobs.verify.steps.find(step => step.name === 'Select accepted coverage configuration');
+  const accepted = runStep(select, repository, {EVENT_NAME: 'push', BASE_SHA: base});
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.equal(accepted.selected, '{"coverage":{"mode":"exact"}}');
+  for (const [label, sha, pattern] of [
+    ['first push', '0'.repeat(40), /created it/],
+    ['malformed before', 'not-a-sha', /not a commit SHA/],
+    ['empty before', '', /not a commit SHA/],
+    ['unknown before', 'e'.repeat(40), /not in the checkout/],
+  ]) {
+    const failed = runStep(select, repository, {EVENT_NAME: 'push', BASE_SHA: sha});
+    assert.notEqual(failed.status, 0, label);
+    assert.match(failed.stdout + failed.stderr, pattern, label);
+    assert.equal(failed.selected, null, `${label}: no configuration is selected`);
+  }
+  git(repository, 'fetch', '-q', bare, 'main');
+  const missing = runStep(select, repository, {EVENT_NAME: 'push', BASE_SHA: noConfig});
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stdout + missing.stderr, /no accepted \.github\/clouseau\.json/);
+});
+
+test('pull request configuration selection is unchanged, including the base without a configuration', (t) => {
+  const {repository, base, bare, noConfig} = fixtureRepository();
+  t.after(() => { rmSync(repository, {recursive: true, force: true}); rmSync(bare, {recursive: true, force: true}); });
+  const select = workflow.jobs.verify.steps.find(step => step.name === 'Select accepted coverage configuration');
+  assert.equal(runStep(select, repository, {EVENT_NAME: 'pull_request', BASE_SHA: base}).selected, '{"coverage":{"mode":"exact"}}');
+  const bootstrap = runStep(select, repository, {EVENT_NAME: 'pull_request', BASE_SHA: 'f'.repeat(40)});
+  assert.equal(bootstrap.status, 0);
+  assert.equal(bootstrap.selected, '{"coverage":{"mode":"changed_lines"}}');
+  git(repository, 'fetch', '-q', bare, 'main');
+  assert.equal(runStep(select, repository, {EVENT_NAME: 'pull_request', BASE_SHA: noConfig}).selected, '{"coverage":{"mode":"changed_lines"}}');
+  assert.equal(runStep(select, repository, {EVENT_NAME: 'workflow_dispatch', BASE_SHA: ''}).selected, '{"coverage":{"mode":"changed_lines"}}');
+});
+
+test('the base coverage measurement refuses an unusable push base but stays silent for other events', (t) => {
+  const {repository, base, bare} = fixtureRepository();
+  t.after(() => { rmSync(repository, {recursive: true, force: true}); rmSync(bare, {recursive: true, force: true}); });
+  const measure = workflow.jobs.unit.steps.find(step => step.name === 'Measure base revision coverage for changed-line mode');
+  for (const sha of ['0'.repeat(40), 'not-a-sha', '', 'e'.repeat(40)]) {
+    const failed = runStep(measure, repository, {EVENT_NAME: 'push', BASE_SHA: sha});
+    assert.notEqual(failed.status, 0, sha);
+    assert.match(failed.stdout + failed.stderr, /::error::Changed-line coverage needs/);
+  }
+  // An exact-mode base needs no baseline, so a push on it measures nothing and succeeds.
+  const exact = runStep(measure, repository, {EVENT_NAME: 'push', BASE_SHA: base});
+  assert.equal(exact.status, 0, exact.stderr);
+  for (const event of ['pull_request', 'workflow_dispatch']) assert.equal(runStep(measure, repository, {EVENT_NAME: event, BASE_SHA: ''}).status, 0);
 });
