@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "base_branch": "main",
+  "readme": "README.md",
+  "repository_policy": "AGENTS.md",
+  "verification": [
+    [
+      "uv",
+      "run",
+      "--frozen",
+      "--python",
+      "3.11",
+      "python",
+      "-m",
+      "coverage",
+      "run",
+      "--rcfile=.github/clouseau-coverage.rc",
+      "--branch",
+      "--source=src",
+      "-m",
+      "pytest",
+      "tests",
+      "-m",
+      "not slow",
+      "-q"
+    ],
+    [
+      "uv",
+      "run",
+      "--frozen",
+      "--python",
+      "3.11",
+      "python",
+      "-m",
+      "coverage",
+      "json",
+      "--rcfile=.github/clouseau-coverage.rc",
+      "-o",
+      "coverage/coverage.json",
+      "-q"
+    ]
+  ],
+  "coverage": {
+    "format": "coveragepy",
+    "report": "coverage/coverage.json",
+    "source_directory": "src"
+  }
+}
