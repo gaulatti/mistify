@@ -131,14 +131,14 @@ uv run pytest
 # Only the model-dependent tests (downloads weights; not run in CI).
 uv run pytest -m slow
 
-# With coverage, as CI reports it.
+# With coverage, as CI reports it (Linux; on macOS use the container script below).
 uv run pytest -m "not slow" --cov
 ```
 
 **On macOS arm64, run the suite with Python 3.11**, not 3.10:
 
 ```bash
-uv run --python 3.11 pytest -m "not slow" --cov
+uv run --python 3.11 pytest -m "not slow"
 ```
 
 The lockfile resolves scipy 1.15.3 for Python 3.10 and 1.17.1 for 3.11+, and the
@@ -148,6 +148,23 @@ sentence-transformers and transformers down with it, so five test modules fail
 collection for reasons unrelated to the code under test. Python 3.11 uses the
 working wheel and the whole suite passes locally with real dependencies. CI
 remains the gate and runs 3.10.
+
+**Measure coverage on macOS in a Linux container.** `--cov` cannot be used
+locally on macOS arm64: collection fails at `import torch`
+(`NameError: name '_C' is not defined`), and importing torch early only exposes
+a second failure, a PyO3 module initialised twice from `tokenizers`. Run the
+required suite under coverage in a disposable Linux Python 3.10 container
+instead, the same interpreter CI uses:
+
+```bash
+scripts/coverage-container.sh            # prints the term-missing report
+scripts/coverage-container.sh tests/test_operations_queue.py   # extra pytest arguments
+```
+
+The script needs a running Docker daemon and streams the working tree into the
+container (no bind mount), so it works with Colima and Docker Desktop alike. The
+container, its virtualenv and its caches are discarded on exit. It reports
+coverage; it does not change what CI measures, and CI remains authoritative.
 
 Coverage counts branches as well as statements and measures every file under
 `src/`, generated code included. Coverage is reported, not gated.
