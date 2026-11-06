@@ -112,6 +112,12 @@ For detailed metrics documentation and example queries, see [METRICS.md](METRICS
 
 ### Testing
 
+Community splitting stops when a partition makes no progress or the existing
+recursion depth limit is reached. Cohesive groups remain intact, even above
+`big_community_size`; low-cohesion groups retain the existing singleton result.
+`tests/test_clustering_recursion.py` covers both paths and the clustering worker
+without loading model weights.
+
 The suite under `tests/` is fixture-driven: it uses fakes for every model and
 never contacts a network service, a model hub, or production.
 
@@ -222,3 +228,44 @@ Configure the service using the following environment variables:
 - `DOCKER_PLATFORM`: Optional Docker platform override for Compose builds/runs (default: `linux/amd64`). Useful on Apple Silicon when base images are amd64-only.
 - `LOAD_MODELS_ON_STARTUP`: Set to `false` to start the API without eagerly loading models (fast boot; model-backed endpoints can return `503` until models are loaded by your runtime strategy).
 - `TRANSLATION_ENABLED`: Set to `false` to skip loading translation models at startup (faster boot; `/translate` and translation in `/analyze` will return fallback/unavailable behavior).
+
+## Pull request verification
+
+Local agent review uses the shared `clouseau` skill with the developer's
+authenticated coding harness and the `.clouseau-local.json` recipe; it needs no
+CI provider keys. `AGENTS.md` owns the rule: run it against the final committed
+change before opening a PR, repair findings, and publish the passing signed
+receipt in the initial ready PR body. Never push directly to `main`.
+
+Every PR runs:
+
+- the required pytest suite (`-m "not slow"`) under coverage.py with branch measurement, using `.github/clouseau-coverage.rc` (no line exclusions) and Python 3.10 from the lockfile,
+- the infrastructure build, tests and CDK synthesis,
+- the workflow-contract tests in `.github/tests`.
+
+The Clouseau gate is changed-line coverage (`coverage.mode: changed_lines` in
+`.github/clouseau.json`) over every production Python file in `src`
+(`coveragepy` format): every line and branch a PR adds or modifies must be
+covered, and repository-wide line and branch coverage must not fall below the
+base revision's, which CI measures by running the same suite on the base commit.
+The base revision is the PR base on pull requests and `github.event.before` on a
+push to `main` (the "Verify main" run). A push whose before revision is unusable
+(a branch-creating push with an all-zero SHA, or a revision missing from the
+checkout) fails with an explicit error rather than falling back to another gate.
+New behaviour needs a test in `tests/`, never a coverage pragma. A PR that does
+not meet the gate stays in human review and is merged by the owner rather than
+automatically. The
+existing `tests.yml` workflow remains the deployment gate and is unchanged.
+
+A PR carrying an authenticated local review stamp is verified by the pinned
+Clouseau engine without AI credentials; unstamped PRs use the CI reviewer.
+Passing reviews receive a bot approval and native auto-merge. Unresolved
+product-direction questions go to the owner, and changes to review controls need
+the owner's `/approve-intent <head SHA>` comment. See [the purpose
+contract](.github/clouseau.md). The CI engine is resolved from protected
+Clouseau `main` at the start of each run (see
+[automatic Clouseau CI upgrades](https://github.com/gaulatti/clouseau/blob/main/docs/automatic-ci-upgrades.md)).
+
+CI needs these repository secrets: `DEEPSEEK_API_KEY` and `TYPESAFE_API_KEY` for
+the CI reviewer, and `DEPLOYMENT_TOKEN` (a token with contents write access
+from an identity other than `github-actions[bot]`) for automatic repairs.

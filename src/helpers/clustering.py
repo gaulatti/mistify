@@ -654,11 +654,18 @@ def split_large_communities(comm, sims, config: Dict = None, depth: int = 0):
         out = []
         for c in sub:
             mapped = [comm[i] for i in c]
+            if len(mapped) == len(comm):
+                # Keep the existing low-cohesion depth-limit result without
+                # retrying an identical partition.
+                return [[item] for item in comm]
             out.extend(split_large_communities(mapped, sims, config, depth + 1))
         return out
 
     # If community is small enough and similarity is acceptable, keep it
     if len(comm) <= big_comm:
+        return [comm]
+
+    if depth > 3:
         return [comm]
 
     # For large communities with good similarity, still try to split them
@@ -671,6 +678,9 @@ def split_large_communities(comm, sims, config: Dict = None, depth: int = 0):
     out = []
     for c in sub:
         mapped = [comm[i] for i in c]
+        if len(mapped) == len(comm):
+            # A cohesive event remains usable even when it cannot be split.
+            return [comm]
         out.extend(split_large_communities(mapped, sims, config, depth + 1))
     return out
 

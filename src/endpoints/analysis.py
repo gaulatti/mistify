@@ -73,6 +73,12 @@ URGENCY_CATEGORY_WEIGHTS = {
     "threat": 1.5,
 }
 
+# Longest signal term, in words. The matcher builds n-grams up to this length so
+# every term in the table is reachable; computed once at import.
+_URGENCY_MAX_TERM_WORDS = max(
+    len(term.split()) for terms in URGENCY_SIGNAL_CATEGORIES.values() for term in terms
+)
+
 
 def _compute_urgency_signals(text: str) -> float:
     """
@@ -87,12 +93,14 @@ def _compute_urgency_signals(text: str) -> float:
     lowered = text.lower()
     # Normalize punctuation so multi-word signals match reliably.
     normalized = re.sub(r"[^\w\s]", " ", lowered)
-    tokens = set(normalized.split())
-    bigrams = {f"{w1} {w2}" for w1, w2 in zip(normalized.split(), normalized.split()[1:])}
+    words = normalized.split()
+    phrases = set(words)
+    for n in range(2, _URGENCY_MAX_TERM_WORDS + 1):
+        phrases.update(" ".join(words[i:i + n]) for i in range(len(words) - n + 1))
 
     score = 0.0
     for category, terms in URGENCY_SIGNAL_CATEGORIES.items():
-        if any(term in tokens or term in bigrams for term in terms):
+        if any(term in phrases for term in terms):
             score += URGENCY_CATEGORY_WEIGHTS.get(category, 1.0)
 
     return min(score, 10.0)
