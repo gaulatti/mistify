@@ -81,22 +81,30 @@ def test_two_word_signals_match_across_punctuation():
     )
 
 
-def test_the_three_word_evacuation_signal_can_never_match(monkeypatch):
-    """Documents a bug rather than asserting desired behaviour.
+def test_the_three_word_evacuation_signal_matches():
+    assert (
+        _compute_urgency_signals("Officials ordered shelter in place")
+        == URGENCY_CATEGORY_WEIGHTS["evacuation"]
+    )
+    assert (
+        _compute_urgency_signals("Officials order: Shelter-in-place, downtown!")
+        == URGENCY_CATEGORY_WEIGHTS["evacuation"]
+    )
 
-    `_compute_urgency_signals` builds unigrams and bigrams only, but the
-    evacuation category contains the three-word term "shelter in place". That
-    term is therefore dead: a shelter-in-place order with no other signal scores
-    zero urgency, which is close to the worst case for this function to miss.
 
-    Filed separately. Pinned here so a fix has a target.
-    """
+def test_every_urgency_term_is_matchable():
+    """Guards the class of bug: a term the matcher cannot build is silently dead."""
     from src.endpoints.analysis import URGENCY_SIGNAL_CATEGORIES
 
-    assert "shelter in place" in URGENCY_SIGNAL_CATEGORIES["evacuation"]
-    assert _compute_urgency_signals("Officials ordered shelter in place") == 0.0, (
-        "the three-word term now matches; the bug is fixed, update this test"
-    )
+    for category, terms in URGENCY_SIGNAL_CATEGORIES.items():
+        for term in terms:
+            score = _compute_urgency_signals(f"Report: {term} downtown")
+            assert score >= URGENCY_CATEGORY_WEIGHTS[category], (term, category)
+
+
+def test_a_multi_word_term_needs_its_words_adjacent_and_in_order():
+    assert _compute_urgency_signals("shelter in the place") == 0.0
+    assert _compute_urgency_signals("place in shelter") == 0.0
 
 
 def test_signals_are_case_insensitive():
