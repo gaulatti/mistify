@@ -143,9 +143,8 @@ collection for reasons unrelated to the code under test. Python 3.11 uses the
 working wheel and the whole suite passes locally with real dependencies. CI
 remains the gate and runs 3.10.
 
-Coverage counts branches as well as statements, and omits the `grpcio-tools`
-generated protobuf stubs in `src/grpc/mistify/` — covering those measures
-`protoc`, not this repository. Coverage is reported, not gated.
+Coverage counts branches as well as statements and measures every file under
+`src/`, generated code included. Coverage is reported, not gated.
 
 Mark any test that needs real model weights or takes a long time with
 `@pytest.mark.slow`. Unknown markers are rejected (`--strict-markers`), so a
