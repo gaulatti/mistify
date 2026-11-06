@@ -112,6 +112,12 @@ For detailed metrics documentation and example queries, see [METRICS.md](METRICS
 
 ### Testing
 
+Community splitting stops when a partition makes no progress or the existing
+recursion depth limit is reached. Cohesive groups remain intact, even above
+`big_community_size`; low-cohesion groups retain the existing singleton result.
+`tests/test_clustering_recursion.py` covers both paths and the clustering worker
+without loading model weights.
+
 The suite under `tests/` is fixture-driven: it uses fakes for every model and
 never contacts a network service, a model hub, or production.
 
