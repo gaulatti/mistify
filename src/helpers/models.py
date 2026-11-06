@@ -52,8 +52,11 @@ def initialize_models(config):
             if not download_fasttext_model(config["FASTTEXT_MODEL_PATH"], config["FASTTEXT_MODEL_URL"]):
                 raise Exception("Failed to download FastText model")
         logger.info("🔧 Loading FastText model from: %s", config["FASTTEXT_MODEL_PATH"])
-        fasttext_model = fasttext.load_model(config["FASTTEXT_MODEL_PATH"])
-        fasttext_model.predict("Hello world", k=1)
+        candidate = fasttext.load_model(config["FASTTEXT_MODEL_PATH"])
+        candidate.predict("Hello world", k=1)
+        # Install only after the smoke test passes, so a model that loads but
+        # cannot predict is reported as unavailable instead of as loaded.
+        fasttext_model = candidate
         logger.info("✓ FastText model loaded and tested successfully")
     except Exception as e:
         logger.error("❌ Failed to load FastText model: %s", e)

@@ -195,28 +195,20 @@ def test_fasttext_is_smoke_tested_after_loading(loaders):
     )
 
 
-def test_a_model_failing_its_smoke_test_is_still_installed(loaders):
-    """Documents a bug rather than asserting desired behaviour.
+def test_a_model_failing_its_smoke_test_is_not_installed(loaders):
+    """A model that loads but cannot predict must be reported as unavailable.
 
-    `fasttext_model` is assigned before `predict()` is called, and the except
-    block does not reset it, so a model that loads but cannot predict is logged
-    as a failure and then returned anyway. The smoke test therefore detects the
-    problem without preventing it: /health reports fasttext_loaded=true and every
-    /detect call fails at runtime instead.
-
-    Filed separately. Pinned here so a fix has a target.
+    Otherwise /health says fasttext_loaded=true while every /detect call fails
+    and /analyze silently skips language detection.
     """
     def failing_predict(*_a, **_k):
         raise RuntimeError("corrupt vectors")
 
-    broken = SimpleNamespace(predict=failing_predict)
-    loaders.fasttext_model = broken
+    loaders.fasttext_model = SimpleNamespace(predict=failing_predict)
 
     fasttext_model, *_ = initialize()
 
-    assert fasttext_model is broken, (
-        "the broken model is no longer returned; the bug is fixed, update this test"
-    )
+    assert fasttext_model is None
 
 
 # --- classifier -------------------------------------------------------------
