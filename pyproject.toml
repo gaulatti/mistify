@@ -40,6 +40,10 @@ dev = [
     "pytest-cov>=7.1.0",
 ]
 
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
 [tool.pytest.ini_options]
 # Only `tests/` is the required suite. `test_translation.py` at the repository
 # root is a hand-run diagnostic script with no assertions and is deliberately
