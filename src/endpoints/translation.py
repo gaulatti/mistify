@@ -123,9 +123,8 @@ async def translate_text(req: TranslationRequest, http_request: Request):
         )
         return _untranslated(req, source_language, "declared_untranslatable")
 
-    if app_state.fasttext_model is not None and (
-        not source_language or source_language not in SUPPORTED_TRANSLATION_LANGUAGES
-    ):
+    # A declared source language is final. Detection runs only when none was given.
+    if app_state.fasttext_model is not None and not source_language:
         try:
             cleaned_text = ' '.join(req.text.replace('\n', ' ').replace('\r', ' ').strip().split())
             if cleaned_text:
@@ -156,13 +155,6 @@ async def translate_text(req: TranslationRequest, http_request: Request):
                     None,
                 )
                 if supported_candidate:
-                    if source_language and source_language != supported_candidate:
-                        logger.warning(
-                            "Replacing unsupported source language %s with supported FastText candidate %s; candidates=%s",
-                            source_language,
-                            supported_candidate,
-                            candidates,
-                        )
                     source_language = supported_candidate
                     logger.info(
                         "Detected source language for translation: %s (confidence=%.4f)",

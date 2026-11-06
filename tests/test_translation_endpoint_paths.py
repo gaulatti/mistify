@@ -85,15 +85,16 @@ async def test_supplied_language_is_normalized_before_use(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_unsupported_supplied_language_is_replaced_by_supported_candidate(monkeypatch):
-    """Below the confidence floor, a supported runner-up replaces the supplied code."""
+async def test_unsupported_supplied_language_is_kept_and_never_redetected(monkeypatch):
+    """A supplied code is final: no detector call, and no guessing a replacement."""
     _returns([{"translation_text": "done"}], monkeypatch)
     fasttext = _FakeFastText([("zza", 0.21), ("es", 0.19)])
     response = await translate_text(
         TranslationRequest(text="texto ambiguo", source_language="zzb"),
         _request(_state(fasttext)),
     )
-    assert response.source_language == "es"
+    assert response.source_language == "zzb"
+    assert response.translated_text == response.original_text
 
 
 @pytest.mark.asyncio
