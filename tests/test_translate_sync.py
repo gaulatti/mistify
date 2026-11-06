@@ -8,6 +8,7 @@ the behaviour is locked down independently of how the function is structured.
 from types import SimpleNamespace
 
 import pytest
+import torch
 
 from src.helpers.async_wrappers import (
     LAST_RESORT_WORDS,
@@ -209,6 +210,54 @@ def test_seamless_direct_model_path_decodes_the_full_sequence():
     assert ("decode", (4, 5, 6), True) in decoded
 
 
+def _direct_translator(processor):
+    seen = {}
+
+    class Model:
+        def parameters(self):
+            return iter([SimpleNamespace(device=torch.device("cpu"))])
+
+        def generate(self, **kwargs):
+            seen["generate_kwargs"] = kwargs
+            return torch.tensor([[7, 8, 9]])
+
+    return SimpleNamespace(model=Model(), tokenizer=processor), seen
+
+
+def test_seamless_direct_path_moves_tensor_inputs_to_the_model_device():
+    class Processor:
+        def __call__(self, text, src_lang, return_tensors):
+            return {"input_ids": torch.tensor([[1, 2, 3]]), "note": "not a tensor"}
+
+        def batch_decode(self, tokens, skip_special_tokens):
+            return [" ".join(str(t) for t in tokens[0].tolist())]
+
+    translator, seen = _direct_translator(Processor())
+    result = _translate_sync(translator, "Hola mundo", "es", "eng", "seamless-m4t-v2")
+
+    assert result == [{"translation_text": "7 8 9"}]
+    input_ids = seen["generate_kwargs"]["input_ids"]
+    assert isinstance(input_ids, torch.Tensor)
+    assert input_ids.device.type == "cpu"
+    assert input_ids.tolist() == [[1, 2, 3]]
+    assert seen["generate_kwargs"]["note"] == "not a tensor", "non-tensor inputs pass through unchanged"
+
+
+def test_seamless_direct_path_decodes_with_decode_when_batch_decode_is_absent():
+    class Processor:
+        def __call__(self, text, src_lang, return_tensors):
+            return {"input_ids": torch.tensor([[1, 2, 3]])}
+
+        def decode(self, tokens, skip_special_tokens):
+            assert skip_special_tokens is True
+            return "decoded:" + ",".join(str(t) for t in tokens.tolist())
+
+    translator, _ = _direct_translator(Processor())
+    result = _translate_sync(translator, "Hola mundo", "es", "eng", "seamless-m4t-v2")
+
+    assert result == [{"translation_text": "decoded:7,8,9"}]
+
+
 # --- escalation -------------------------------------------------------------
 
 def test_a_failed_attempt_escalates_to_the_next_candidate():
@@ -219,31 +268,67 @@ def test_a_failed_attempt_escalates_to_the_next_candidate():
     assert len(translator.calls) == 2, "retried after the first failure"
 
 
-def test_seamless_retries_the_pipeline_within_a_single_attempt():
-    """Each seamless attempt costs two model calls, not one.
-
-    `_attempt_translation` tries the direct model/processor path, then retries
-    through the pipeline with an explicit language pair before giving up on that
-    candidate. Worth knowing when counting GPU work.
-    """
-    translator = RecordingTranslator(failures=1)
+def test_a_successful_seamless_translation_makes_exactly_one_model_call():
+    translator = RecordingTranslator()
     _translate_sync(translator, "alpha beta", "es", "eng", "seamless")
 
-    assert len(translator.calls) == 2
-    assert translator.calls[0]["text"] == translator.calls[1]["text"]
+    assert len(translator.calls) == 1
+
+
+def test_a_failed_seamless_attempt_escalates_instead_of_retrying_the_same_text():
+    """A runtime failure (OOM, CUDA) must not re-run the same text through a second interface."""
+    long_text = " ".join(f"word{i}" for i in range(500))
+    translator = RecordingTranslator(failures=1)
+    _translate_sync(translator, long_text, "es", "eng", "seamless")
+
+    assert [len(call["text"].split()) for call in translator.calls] == [400, ULTRA_CONSERVATIVE_WORDS]
+    assert all("no_repeat_ngram_size" in call for call in translator.calls)
+
+
+def test_a_failing_direct_model_path_does_not_fall_back_to_the_pipeline_for_the_same_text():
+    class Processor:
+        def __call__(self, text, src_lang, return_tensors):
+            return {}
+
+    class Model:
+        def parameters(self):
+            return iter([SimpleNamespace(device="cpu")])
+
+        def generate(self, **kwargs):
+            raise RuntimeError("CUDA out of memory")
+
+    class DirectTranslator:
+        model = Model()
+        tokenizer = Processor()
+
+        def __init__(self):
+            self.pipeline_calls = []
+
+        def __call__(self, text, **kwargs):
+            self.pipeline_calls.append(text)
+            return [{"translation_text": "from the pipeline"}]
+
+    translator = DirectTranslator()
+    long_text = " ".join(f"word{i}" for i in range(500))
+    result = _translate_sync(translator, long_text, "es", "eng", "seamless")
+
+    # Every candidate fails on the direct path; only the documented last resort
+    # (shortest input, model defaults) reaches the pipeline interface.
+    assert translator.pipeline_calls == [" ".join(long_text.split()[:LAST_RESORT_WORDS])]
+    assert result == [{"translation_text": "from the pipeline"}]
 
 
 def test_every_candidate_failing_falls_through_to_the_last_resort():
     long_text = " ".join(f"word{i}" for i in range(500))
     # No sentence boundaries, so smart truncation is skipped: two candidates
-    # remain, each costing two seamless calls.
-    translator = RecordingTranslator(failures=4)
+    # remain, each costing one seamless call, then the last resort.
+    translator = RecordingTranslator(failures=2)
     result = _translate_sync(translator, long_text, "es", "eng", "seamless")
 
     assert result == [{"translation_text": "ok"}]
-    assert len(translator.calls) == 5
+    assert len(translator.calls) == 3
     assert [len(call["text"].split()) for call in translator.calls] == [
-        400, 400, ULTRA_CONSERVATIVE_WORDS, ULTRA_CONSERVATIVE_WORDS, LAST_RESORT_WORDS
+        400, ULTRA_CONSERVATIVE_WORDS, LAST_RESORT_WORDS
     ]
     last = translator.calls[-1]
     assert last["src_lang"] == "spa"
