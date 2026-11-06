@@ -216,6 +216,7 @@ def test_custom_metric_label_keys_and_gpu_aggregation_are_bounded():
         "outcome",
         "phase",
         "quantile",
+        "reason",
         "route",
         "service",
         "status_code",
