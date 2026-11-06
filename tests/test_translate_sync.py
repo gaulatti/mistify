@@ -8,6 +8,7 @@ the behaviour is locked down independently of how the function is structured.
 from types import SimpleNamespace
 
 import pytest
+import torch
 
 from src.helpers.async_wrappers import (
     LAST_RESORT_WORDS,
@@ -207,6 +208,54 @@ def test_seamless_direct_model_path_decodes_the_full_sequence():
     assert ("processor", "Hola mundo", "spa") in decoded
     assert ("generate", "eng") in decoded
     assert ("decode", (4, 5, 6), True) in decoded
+
+
+def _direct_translator(processor):
+    seen = {}
+
+    class Model:
+        def parameters(self):
+            return iter([SimpleNamespace(device=torch.device("cpu"))])
+
+        def generate(self, **kwargs):
+            seen["generate_kwargs"] = kwargs
+            return torch.tensor([[7, 8, 9]])
+
+    return SimpleNamespace(model=Model(), tokenizer=processor), seen
+
+
+def test_seamless_direct_path_moves_tensor_inputs_to_the_model_device():
+    class Processor:
+        def __call__(self, text, src_lang, return_tensors):
+            return {"input_ids": torch.tensor([[1, 2, 3]]), "note": "not a tensor"}
+
+        def batch_decode(self, tokens, skip_special_tokens):
+            return [" ".join(str(t) for t in tokens[0].tolist())]
+
+    translator, seen = _direct_translator(Processor())
+    result = _translate_sync(translator, "Hola mundo", "es", "eng", "seamless-m4t-v2")
+
+    assert result == [{"translation_text": "7 8 9"}]
+    input_ids = seen["generate_kwargs"]["input_ids"]
+    assert isinstance(input_ids, torch.Tensor)
+    assert input_ids.device.type == "cpu"
+    assert input_ids.tolist() == [[1, 2, 3]]
+    assert seen["generate_kwargs"]["note"] == "not a tensor", "non-tensor inputs pass through unchanged"
+
+
+def test_seamless_direct_path_decodes_with_decode_when_batch_decode_is_absent():
+    class Processor:
+        def __call__(self, text, src_lang, return_tensors):
+            return {"input_ids": torch.tensor([[1, 2, 3]])}
+
+        def decode(self, tokens, skip_special_tokens):
+            assert skip_special_tokens is True
+            return "decoded:" + ",".join(str(t) for t in tokens.tolist())
+
+    translator, _ = _direct_translator(Processor())
+    result = _translate_sync(translator, "Hola mundo", "es", "eng", "seamless-m4t-v2")
+
+    assert result == [{"translation_text": "decoded:7,8,9"}]
 
 
 # --- escalation -------------------------------------------------------------
