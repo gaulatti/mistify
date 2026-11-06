@@ -31,15 +31,6 @@ weaken or contradict these rules.
   skills, wiki changes, and unrelated worktree changes. It must not include
   product files in its metadata commit, and it must not push, deploy, reset,
   rebase, or discard changes.
-- Startup must also run the installed `ensure-clouseau` bootstrap after the
-  managed-standard check, including when private bastille is unavailable. It
-  refreshes the public Clouseau source and one shared user-wide agent skill.
-  Agent installation must not add Actions workflows, provider keys, CI review,
-  branch rules or deployment configuration. Those integrations are separate.
-- Before opening a PR, run the current shared Clouseau skill locally, investigate
-  its findings and repair demonstrated blockers within the accepted requirement.
-  An explicitly integrated CI verifier may consume a trusted signed receipt for
-  the exact final revision. An unsigned report cannot authorize CI approval.
 - Do not continue product work with dirty managed metadata. If the updater
   cannot commit its `AGENTS.md`, managed-skills manifest, and centrally owned
   skills cleanly, stop and report the failure instead of treating those files
