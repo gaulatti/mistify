@@ -149,8 +149,19 @@ async def test_grpc_and_worker_success_failure_labels_are_bounded(monkeypatch):
         "success",
         "error",
     }
-    assert {sample.labels["method"] for sample in grpc_samples} == {
-        "DetectLanguage"
+    # The registry is process-wide, so other tests may have driven other RPCs.
+    # What matters is that every label is a declared RPC name, never request data.
+    methods = {sample.labels["method"] for sample in grpc_samples}
+    assert "DetectLanguage" in methods
+    assert methods <= {
+        "AnalyzePosts",
+        "DetectLanguage",
+        "ClassifyContent",
+        "TranslateText",
+        "EmbedText",
+        "ClusterPost",
+        "GenerateScoutQueries",
+        "RankScoutCandidates",
     }
     assert {sample.labels["outcome"] for sample in job_samples} >= {
         "success",
