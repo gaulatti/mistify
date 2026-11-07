@@ -85,12 +85,8 @@ def _cluster_sync(texts: List[str], nlp, embedder, classifier, config: Dict = No
             try:
                 logger.debug(f"🔧 Processing group {gid} with indices: {idx}")
                 
-                # Validate indices
-                if not idx:
-                    logger.warning(f"⚠️ Empty group {gid}, skipping")
-                    continue
-                    
-                # Check if all indices are valid
+                # Groups are never empty here: an empty group would already have
+                # failed the sort above. Check that all indices are valid.
                 max_idx = max(idx)
                 if max_idx >= len(texts):
                     logger.error(f"❌ Invalid index {max_idx} in group {gid}, max allowed: {len(texts)-1}")
@@ -109,11 +105,7 @@ def _cluster_sync(texts: List[str], nlp, embedder, classifier, config: Dict = No
                 if len(idx) > 1:
                     try:
                         group_sims = [sims[i, j] for i, j in itertools.combinations(idx, 2)]
-                        if group_sims:
-                            avg_similarity = float(np.mean(group_sims))
-                        else:
-                            logger.warning(f"⚠️ No similarities found for group {gid}")
-                            avg_similarity = 0.0
+                        avg_similarity = float(np.mean(group_sims))
                     except Exception as sim_e:
                         logger.error(f"❌ Error calculating similarities for group {gid}: {sim_e}")
                         avg_similarity = 0.0
