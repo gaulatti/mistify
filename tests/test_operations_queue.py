@@ -275,6 +275,14 @@ async def test_an_unparseable_claim_is_dead_lettered_not_retried(queue, redis):
     assert redis.lists[DEAD_LETTER_QUEUE_NAME] == ["{not json"]
 
 
+@pytest.mark.asyncio
+async def test_a_blocking_dequeue_also_dead_letters_an_unparseable_claim(queue, redis):
+    redis.lists[QUEUE_NAME].append("{not json")
+
+    assert await queue.dequeue(timeout_seconds=1) is None
+    assert redis.lists[DEAD_LETTER_QUEUE_NAME] == ["{not json"]
+
+
 # --- acknowledge / requeue / recover ---------------------------------------
 
 @pytest.mark.asyncio
