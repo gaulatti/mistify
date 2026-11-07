@@ -167,7 +167,12 @@ container, its virtualenv and its caches are discarded on exit. It reports
 coverage; it does not change what CI measures, and CI remains authoritative.
 
 Coverage counts branches as well as statements and measures every file under
-`src/`, generated code included. Coverage is reported, not gated.
+`src/` except the protoc-generated gRPC stubs (omitted in `pyproject.toml`).
+Coverage is gated: `fail_under = 99.9` in `[tool.coverage.report]` fails
+`pytest --cov` below that total. The only uncovered statement is the retained,
+unreachable `translator_model_name is None` guard in `src/helpers/models.py`.
+Change the floor deliberately, in the PR that changes coverage; never lower it
+to admit untested code.
 
 Mark any test that needs real model weights or takes a long time with
 `@pytest.mark.slow`. Unknown markers are rejected (`--strict-markers`), so a
