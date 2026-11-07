@@ -8,6 +8,7 @@ import fasttext
 import spacy
 from transformers import pipeline
 from sentence_transformers import SentenceTransformer
+from src.helpers.language_detector import GLOTLID, LID176, ScriptMergingDetector
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,9 @@ def initialize_models(config):
         logger.info("🔧 Loading FastText model from: %s", config["FASTTEXT_MODEL_PATH"])
         candidate = fasttext.load_model(config["FASTTEXT_MODEL_PATH"])
         candidate.predict("Hello world", k=1)
+        if config.get("LANGUAGE_DETECTOR", LID176) == GLOTLID:
+            candidate = ScriptMergingDetector(candidate)
+            candidate.predict("Hello world", k=1)
         # Install only after the smoke test passes, so a model that loads but
         # cannot predict is reported as unavailable instead of as loaded.
         fasttext_model = candidate
