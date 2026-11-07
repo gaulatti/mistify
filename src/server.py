@@ -39,6 +39,7 @@ from dotenv import load_dotenv
 
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from src.helpers.language_detector import detector_settings
 from src.helpers.models import initialize_models
 from src.endpoints import (
     analysis,
@@ -107,9 +108,13 @@ app = FastAPI(
 app_state = SimpleNamespace()
 
 # ---- Configuration -------------------------------------------------------------
+_language_detector = os.getenv("LANGUAGE_DETECTOR", "lid176").strip().lower()
+_detector_path, _detector_url = detector_settings(_language_detector, os.environ)
 app_state.config = {
-    "FASTTEXT_MODEL_PATH": os.getenv("FASTTEXT_MODEL_PATH", "lid.176.bin"),
-    "FASTTEXT_MODEL_URL": "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin",
+    "LANGUAGE_DETECTOR": _language_detector,
+    # The key names stay `FASTTEXT_*`: both detectors are fastText models.
+    "FASTTEXT_MODEL_PATH": _detector_path,
+    "FASTTEXT_MODEL_URL": _detector_url,
     "DEFAULT_CLASSIFICATION_LABELS": [],
     "MIN_SCORE": float(os.getenv("MIN_SCORE", "0.30")),
     "MIN_MARGIN": float(os.getenv("MIN_MARGIN", "0.10")),

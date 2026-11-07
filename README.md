@@ -243,7 +243,15 @@ uv run python -m src.server
 
 Configure the service using the following environment variables:
 
-- `FASTTEXT_MODEL_PATH`: Path to the FastText language model (default: `lid.176.bin`)
+- `LANGUAGE_DETECTOR`: Language detector, `lid176` (default) or `glotlid` (GlotLID-v3, 2,000+ labels). Both are CPU fastText models; neither is placed on the GPU. An unknown value stops startup.
+- `FASTTEXT_MODEL_PATH`: Path to the `lid176` model (default: `lid.176.bin`)
+- `GLOTLID_MODEL_PATH`: Path to the GlotLID-v3 model when `LANGUAGE_DETECTOR=glotlid` (default: `glotlid_v3.bin`)
+
+### Language detector (GlotLID-v3)
+
+`glotlid` emits `<iso639-3>_<Script>` labels. `ScriptMergingDetector` sums probabilities of labels that differ only by script and returns plain language codes, so `/detect` keeps its `languages`/`probabilities` shape and top-k behaviour. Every label resolves to one explicit outcome (`src/helpers/language_detector.py::resolve_label`): a language the translator supports, a mutually intelligible supported relative (`UNSUPPORTED_TRANSLATION_FALLBACKS`), or declined (the original text is kept, as for `UNTRANSLATABLE_LANGUAGES`). `tests/test_language_detector.py` asserts this over the service's complete language inventory in every script shape, and a `slow` test asserts it over the downloaded model's full label list.
+
+The model is downloaded on first start exactly like `lid.176.bin` (to `GLOTLID_MODEL_PATH`) from `https://huggingface.co/cis-lmu/glotlid/resolve/main/model_v3.bin`. CI never downloads it. Offline install: fetch `model_v3.bin` once, place it at `GLOTLID_MODEL_PATH` (for example in the image or a volume), and it is loaded without network access. To run the full-label check: `GLOTLID_MODEL_PATH=/path/model_v3.bin uv run pytest -m slow tests/test_language_detector.py`.
 - `MIN_SCORE`: Minimum confidence score for classification (default: `0.30`)
 - `MIN_MARGIN`: Minimum margin between top two scores (default: `0.10`)
 - `TRANSFORMERS_OFFLINE`: Set to `1` to enforce offline mode for Hugging Face models (default in Docker).
