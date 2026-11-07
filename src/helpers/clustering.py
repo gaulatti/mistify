@@ -621,11 +621,9 @@ def split_large_communities(comm, sims, config: Dict = None, depth: int = 0):
         return [comm]
     
     subM = sims[np.ix_(comm, comm)]
-    # Calculate average similarity, avoiding division by zero
+    # len(comm) > 1 here, so the denominator is never zero.
     denominator = len(comm) * (len(comm) - 1)
-    if denominator == 0:
-        return [comm]
-    
+
     avg = (subM.sum() - len(comm)) / denominator
 
     # STRICT ENFORCEMENT: If average similarity is too low, split into individual items
@@ -697,9 +695,6 @@ def calculate_category_similarity(categories_i: List[str], categories_j: List[st
     # Calculate Jaccard similarity
     intersection = set_i & set_j
     union = set_i | set_j
-
-    if not union:
-        return 0.0
 
     return len(intersection) / len(union)
 

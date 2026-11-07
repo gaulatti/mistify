@@ -474,13 +474,3 @@ async def test_lazy_load_rechecks_inside_the_lock(monkeypatch):
     await embedding._ensure_embedder_available(state)
 
     assert loads == [], "the recheck must prevent a second, redundant load"
-
-
-def test_embedding_item_can_never_serialize_to_nothing():
-    """Documents that `if not item: return {}` in embed_items is unreachable.
-
-    `EmbeddingItem` always carries `content`, so `req.dict()` always has at least
-    one key. Pinned so the guard is removed rather than reimplemented.
-    """
-    assert EmbeddingItem(content="").dict() == {"content": ""}
-    assert EmbeddingItem(content="x").dict()

@@ -72,8 +72,6 @@ async def embed_items(req: EmbeddingItem, http_request: Request) -> dict:
     metrics.POSTS_PROCESSED_TOTAL.labels(endpoint="embed").inc()
 
     item = req.dict()
-    if not item:
-        return {}
 
     text = str(item.get("content", "") or "")
     if not text:
