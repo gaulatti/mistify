@@ -50,6 +50,15 @@ omit = [
     "src/grpc/mistify/operations_pb2_grpc.py",
 ]
 
+[tool.coverage.report]
+# Coverage floor, enforced by `pytest --cov` in CI (.github/workflows/tests.yml).
+# The only uncovered statement is the deliberately retained, unreachable
+# `translator_model_name is None` guard in src/helpers/models.py (documented by
+# test_the_translator_name_is_always_set_before_the_final_guard), so the floor
+# is just below 100%. Raise it, never lower it, when coverage changes.
+precision = 2
+fail_under = 99.9
+
 [tool.pytest.ini_options]
 # Only `tests/` is the required suite. `test_translation.py` at the repository
 # root is a hand-run diagnostic script with no assertions and is deliberately
