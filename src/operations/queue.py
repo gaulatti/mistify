@@ -102,9 +102,9 @@ class OperationQueue:
             queued = QueuedOperation(envelope=envelope)
             serialized = queued.model_dump_json()
 
+        # Non-empty: `remaining_items` is non-empty and holds only keyed, non-duplicate items.
         new_keys = [key for _, key in keyed_items if key not in existing]
-        if new_keys:
-            await self._mark_keys(new_keys)
+        await self._mark_keys(new_keys)
 
         await self.redis.lpush(self.queue_name, serialized)
         return True

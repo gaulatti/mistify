@@ -482,8 +482,8 @@ class OperationWorker:
                 request,
                 timeout=CALLBACK_TIMEOUT_SECONDS,
             )
-            if not response.ok:
-                raise RuntimeError(f"Monitor rejected callback: ok={response.ok}")
+        if not response.ok:
+            raise RuntimeError(f"Monitor rejected callback: ok={response.ok}")
 
     def _build_analysis_result_items(
         self, result: Optional[Dict[str, Any]]
@@ -502,8 +502,7 @@ class OperationWorker:
 
             from google.protobuf.struct_pb2 import Struct
             payload = Struct()
-            if isinstance(post, dict):
-                payload.update(post)
+            payload.update(post)  # `post` is always a dict: `item` is one, and so is a nested `post`
 
             pb_items.append(
                 operations_pb2.AnalysisResultItem(
