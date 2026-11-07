@@ -365,3 +365,22 @@ def test_the_translator_name_is_always_set_before_the_final_guard(loaders, monke
         *_, name = initialize()
         assert name == expected, f"{label}: reported {name!r}"
         assert name is not None
+
+
+# --- configurable language detector -----------------------------------------
+
+def test_glotlid_is_wrapped_after_its_smoke_test(loaders):
+    from src.helpers.language_detector import ScriptMergingDetector
+
+    loaders.fasttext_model = SimpleNamespace(
+        predict=lambda *_a, **_k: (["__label__eng_Latn"], [0.9]),
+        get_labels=lambda: [],
+    )
+    model = models_module.initialize_models({**CONFIG, "LANGUAGE_DETECTOR": "glotlid"})[0]
+
+    assert isinstance(model, ScriptMergingDetector)
+    assert model.predict("hello", k=1) == (("__label__eng",), (0.9,))
+
+
+def test_lid176_stays_unwrapped_by_default(loaders):
+    assert models_module.initialize_models(CONFIG)[0] is loaders.fasttext_model
