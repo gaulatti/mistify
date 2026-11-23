@@ -94,7 +94,8 @@ async def test_a_wrong_token_is_refused(vectors):
 @pytest.mark.asyncio
 async def test_a_non_ascii_header_is_refused_not_a_server_error(vectors):
     _, client = build()
-    response = await post(client, {"Authorization": "Bearer tökén-ü"})
+    # httpx refuses a non-ASCII str header, so the raw bytes are sent (the server still sees a non-ASCII value).
+    response = await post(client, {"Authorization": "Bearer tökén-ü".encode("utf-8")})
     assert response.status_code == 401
 
 
