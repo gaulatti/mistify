@@ -31,7 +31,9 @@ def require_media_auth(
     token = request.state.app_state.config["MEDIA_OPERATION_BEARER_TOKEN"]
     if token is None:
         raise HTTPException(status_code=404, detail="Not Found")
-    if not secrets.compare_digest(authorization or "", f"Bearer {token}"):
+    # Compare bytes: str comparison rejects non-ASCII input with a TypeError (a 500, not a 401).
+    presented = (authorization or "").encode("utf-8")
+    if not secrets.compare_digest(presented, f"Bearer {token}".encode("utf-8")):
         raise HTTPException(
             status_code=401,
             detail="Unauthorized",
