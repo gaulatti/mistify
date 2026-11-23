@@ -224,11 +224,11 @@ POSTS_PROCESSED_TOTAL = Counter(
     labelnames=("endpoint",),
 )
 
-# gaulatti/mistify#62: /embed requests by result. Bounded: ok, unauthorized, unconfigured, failed.
+# gaulatti/mistify#62: /embed requests by outcome. Bounded: ok, unauthorized, unconfigured, failed.
 EMBED_REQUESTS_TOTAL = Counter(
     "mistify_embed_requests_total",
-    "Requests to /embed by result (ok, unauthorized, unconfigured, failed)",
-    labelnames=("result",),
+    "Requests to /embed by outcome (ok, unauthorized, unconfigured, failed)",
+    labelnames=("outcome",),
 )
 
 POSTS_BATCH_SIZE = Histogram(

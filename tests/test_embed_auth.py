@@ -18,6 +18,14 @@ from src.endpoints import embedding
 TOKEN = "fictional-embed-token-0123456789"
 
 
+class _Row:
+    def __init__(self, values):
+        self._values = values
+
+    def tolist(self):
+        return list(self._values)
+
+
 class _Vectors:
     def __init__(self, rows):
         self._rows = rows
@@ -25,7 +33,7 @@ class _Vectors:
         self.shape = (len(rows), len(rows[0]))
 
     def __getitem__(self, index):
-        return self._rows[index]
+        return _Row(self._rows[index])
 
 
 def build(token=TOKEN):
@@ -63,7 +71,7 @@ def counts():
     result = {}
     for line in generate_latest().decode().splitlines():
         if line.startswith("mistify_embed_requests_total{"):
-            label = line.split('result="', 1)[1].split('"', 1)[0]
+            label = line.split('outcome="', 1)[1].split('"', 1)[0]
             result[label] = float(line.rsplit(" ", 1)[1])
     return result
 

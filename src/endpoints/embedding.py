@@ -79,13 +79,13 @@ def require_embed_auth(
     global _unconfigured_logged
     token = request.state.app_state.config.get("EMBED_BEARER_TOKEN")
     if token is None:
-        metrics.EMBED_REQUESTS_TOTAL.labels(result="unconfigured").inc()
+        metrics.EMBED_REQUESTS_TOTAL.labels(outcome="unconfigured").inc()
         if not _unconfigured_logged:
             _unconfigured_logged = True
             logger.warning("EMBED_BEARER_TOKEN is not set: /embed answers 503 to every caller")
         raise HTTPException(status_code=503, detail="embed route not configured")
     if not secrets.compare_digest(authorization or "", f"Bearer {token}"):
-        metrics.EMBED_REQUESTS_TOTAL.labels(result="unauthorized").inc()
+        metrics.EMBED_REQUESTS_TOTAL.labels(outcome="unauthorized").inc()
         raise HTTPException(
             status_code=401,
             detail="Unauthorized",
@@ -100,7 +100,7 @@ async def embed_items(req: EmbeddingItem, http_request: Request) -> dict:
     try:
         await _ensure_embedder_available(app_state)
     except HTTPException:
-        metrics.EMBED_REQUESTS_TOTAL.labels(result="failed").inc()
+        metrics.EMBED_REQUESTS_TOTAL.labels(outcome="failed").inc()
         raise
 
     # Track embedding request
@@ -121,19 +121,19 @@ async def embed_items(req: EmbeddingItem, http_request: Request) -> dict:
 
     except Exception as e:
         metrics.OPERATION_FAILURES_TOTAL.labels(operation="embed", failure_type="exception").inc()
-        metrics.EMBED_REQUESTS_TOTAL.labels(result="failed").inc()
+        metrics.EMBED_REQUESTS_TOTAL.labels(outcome="failed").inc()
         logger.exception("❌ Embedding failed for /embed (content_len=%d)", len(text))
         raise HTTPException(status_code=500, detail=f"Embedding failed: {type(e).__name__}: {str(e)}")
 
     # Ensure vecs is 2D array with shape (1, embedding_dim)
     # Validate dimensions
     if vecs.ndim != 2:
-        metrics.EMBED_REQUESTS_TOTAL.labels(result="failed").inc()
+        metrics.EMBED_REQUESTS_TOTAL.labels(outcome="failed").inc()
         logger.error(f"❌ Expected 2D embeddings array, got {vecs.ndim}D with shape {vecs.shape}")
         raise HTTPException(status_code=500, detail=f"Invalid embeddings shape: expected 2D, got {vecs.ndim}D")
 
     if vecs.shape[0] != 1:
-        metrics.EMBED_REQUESTS_TOTAL.labels(result="failed").inc()
+        metrics.EMBED_REQUESTS_TOTAL.labels(outcome="failed").inc()
         logger.error(f"❌ Expected 1 embedding, got {vecs.shape[0]}")
         raise HTTPException(status_code=500, detail=f"Expected 1 embedding, got {vecs.shape[0]}")
 
@@ -141,6 +141,6 @@ async def embed_items(req: EmbeddingItem, http_request: Request) -> dict:
     embedding_vector = vecs[0]  # Get first (and only) row
     # Add embeddings to the item
     item["embeddings"] = embedding_vector.tolist()
-    metrics.EMBED_REQUESTS_TOTAL.labels(result="ok").inc()
+    metrics.EMBED_REQUESTS_TOTAL.labels(outcome="ok").inc()
 
     return item
