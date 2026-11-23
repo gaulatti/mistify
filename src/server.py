@@ -135,6 +135,10 @@ app_state.config = {
     "MEDIA_OPERATION_BEARER_TOKEN": metrics.normalize_metrics_token(
         os.getenv("MEDIA_OPERATION_BEARER_TOKEN")
     ),
+    # gaulatti/mistify#62: the credential for /embed. Unset keeps the cross-host route off (503).
+    "EMBED_BEARER_TOKEN": metrics.normalize_metrics_token(
+        os.getenv("EMBED_BEARER_TOKEN")
+    ),
     "MEDIA_INPUT_ROOT": pathlib.Path(os.getenv("MEDIA_INPUT_ROOT", "/media")),
     "MEDIA_MAX_BYTES": int(os.getenv("MEDIA_MAX_BYTES", str(512 * 1024 * 1024))),
     "MEDIA_MAX_DURATION_SECONDS": int(

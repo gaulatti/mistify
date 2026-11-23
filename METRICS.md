@@ -15,6 +15,14 @@ storage, dashboards, and alerts. It must reach Mistify only across the managed
 private service network and hold the bearer secret. This repository owns the
 application instrumentation and protected exposition only.
 
+## /embed credential (gaulatti/mistify#62)
+
+`POST /embed` is reachable across hosts only with `Authorization: Bearer <EMBED_BEARER_TOKEN>`.
+Unset: `503 embed route not configured`. Missing or wrong credential: `401` with a Bearer
+challenge. Production reads the token from the GitHub Actions secret `EMBED_BEARER_TOKEN`.
+Its result is counted in `mistify_embed_requests_total{result}`, where `result` is one of
+`ok`, `unauthorized`, `unconfigured`, `failed`. The token is never written into metrics or responses.
+
 ## Overview
 
 The Mistify service exposes comprehensive metrics for monitoring:
