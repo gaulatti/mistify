@@ -92,6 +92,13 @@ async def test_a_wrong_token_is_refused(vectors):
 
 
 @pytest.mark.asyncio
+async def test_a_non_ascii_header_is_refused_not_a_server_error(vectors):
+    _, client = build()
+    response = await post(client, {"Authorization": "Bearer tökén-ü"})
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_the_right_token_embeds_the_item(vectors):
     _, client = build()
     response = await post(client, {"Authorization": f"Bearer {TOKEN}"})

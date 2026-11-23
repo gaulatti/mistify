@@ -84,7 +84,9 @@ def require_embed_auth(
             _unconfigured_logged = True
             logger.warning("EMBED_BEARER_TOKEN is not set: /embed answers 503 to every caller")
         raise HTTPException(status_code=503, detail="embed route not configured")
-    if not secrets.compare_digest(authorization or "", f"Bearer {token}"):
+    # Compare bytes: str comparison rejects non-ASCII input with a TypeError (a 500, not a 401).
+    presented = (authorization or "").encode("utf-8")
+    if not secrets.compare_digest(presented, f"Bearer {token}".encode("utf-8")):
         metrics.EMBED_REQUESTS_TOTAL.labels(outcome="unauthorized").inc()
         raise HTTPException(
             status_code=401,
