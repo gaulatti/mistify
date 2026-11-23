@@ -266,6 +266,7 @@ The model is downloaded on first start exactly like `lid.176.bin` (to `GLOTLID_M
   Production deployments source it from the GitHub Actions secret with the
   same name; the central `gaulatti/prometheus` scraper must hold that token.
 - `MEDIA_OPERATION_BEARER_TOKEN`: Required secret for `/media/operations`.
+- `EMBED_BEARER_TOKEN`: Secret for `/embed` (gaulatti/mistify#62). Unset answers `503` (route off); a missing or wrong `Authorization: Bearer` answers `401`. Callers outside this host must hold it.
   When blank or absent, all media-operation routes are hidden with `404`. It is
   a local/test override only. This change does not enable production; that
   requires a separate Secrets Manager-owned configuration integration rather
