@@ -123,6 +123,18 @@ async def test_a_missing_or_wrong_token_is_a_401_with_a_challenge():
         assert response.headers["www-authenticate"] == "Bearer"
 
 
+@pytest.mark.asyncio
+async def test_a_non_ascii_authorization_header_is_a_401_not_a_server_error():
+    _state, client = build()
+    async with client:
+        # httpx refuses a non-ASCII str header client-side, so the raw UTF-8 bytes are sent.
+        response = await client.get(
+            "/media/operations/op_x",
+            headers={"Authorization": "Bearer tökén-ü".encode("utf-8")},
+        )
+    assert response.status_code == 401
+
+
 # --- submission -------------------------------------------------------------
 
 @pytest.mark.asyncio
